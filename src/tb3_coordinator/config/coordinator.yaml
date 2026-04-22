@@ -1,0 +1,65 @@
+# ============================================================
+# tb3_coordinator — coordinator_node + semantic_map_memory_node
+# ============================================================
+
+coordinator_node:
+  ros__parameters:
+    user_command_topic:       "/user_command"
+    exploration_enabled_topic: "/exploration_enabled"
+    query_command_topic:      "/semantic_query_node/command"
+    query_result_topic:       "/semantic_query_node/selected_target"
+    goal_pose_topic:          "/nav_goal_adapter_node/goal_pose"
+    status_topic:             "~/status"
+    navigate_to_pose_action:  "navigate_to_pose"
+    nav_goal_timeout_sec:     60.0
+    auto_resume_exploration:  true
+    resume_delay_sec:         3.0
+
+semantic_map_memory_node:
+  ros__parameters:
+    input_topic:              "/semantic_memory_node/objects"
+    output_topic:             "/semantic_memory_markers"
+    map_topic:                "/map"
+    target_frame:             "map"
+    tf_timeout:               0.3
+    publish_rate:             1.0
+
+    # ── Landmark matching ──────────────────────────────────
+    merge_distance:           0.8
+    candidate_merge_distance: 0.8
+
+    # ── Promotion ──────────────────────────────────────────
+    # Observations needed before a candidate becomes a persistent landmark.
+    min_observations:         3
+
+    # ── Obstacle island search ─────────────────────────────
+    # Search window radius in grid cells around the observation.
+    search_radius_cells:      20
+
+    # Minimum occupancy value (0-100) to consider a cell as obstacle.
+    occupied_threshold:       50
+
+    # Minimum connected pixels for a valid island (1 = accept single pixels).
+    min_island_pixels:        2
+
+    # ── Candidate lifecycle ────────────────────────────────
+    # Seconds before an unconfirmed candidate is discarded.
+    candidate_timeout:        45.0
+
+    # ── Observation quality ───────────────────────────
+    # Reject observations farther than this from robot (in base_link).
+    # Reduces landmark drift from noisy far-distance localizer output.
+    max_observation_range_m:   2.5
+
+    # ── Class-aware gating ────────────────────────────
+    person_max_range_m:        2.5
+    bench_max_range_m:         2.0
+    stop_sign_max_range_m:     1.8
+    person_min_observations:   3
+    bench_min_observations:    4
+    stop_sign_min_observations: 5
+    wall_boundary_margin_m:   0.20
+
+    # ── Visualization ──────────────────────────────────────
+    sphere_radius:            0.18
+    text_offset_z:            0.45

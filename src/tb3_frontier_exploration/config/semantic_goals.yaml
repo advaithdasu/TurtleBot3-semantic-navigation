@@ -1,0 +1,41 @@
+# semantic_goals.yaml — Map-frame goal regions for semantic navigation.
+#
+# Keys must match semantic_name in config/semantic_targets.yaml exactly.
+# These are the ONLY three enabled semantic targets for the current phase.
+#
+# Coordinate origin: map frame, robot spawned near (0,0) facing +X.
+# ⚠  Coordinates below are PLACEHOLDER values from the old warehouse world.
+#    Re-survey and update x/y after placing objects in your active test world.
+#
+# Object label (key) → region + arrival thresholds. yaw in radians.
+
+frame_id: "map"
+
+semantic_goals:
+
+  table:
+    # semantic_name="table"  |  detector_label="bench"  |  gazebo_model="table_marble"
+    x: 0.7
+    y: 1.5
+    radius: 0.25
+    yaw: 0.0
+    arrival_cost_threshold: 75
+    arrival_distance_tolerance: 0.35
+
+  stop_sign:
+    # semantic_name="stop_sign"  |  detector_label="stop sign"  |  gazebo_model="stop_sign"
+    x: -0.7
+    y: 0.3
+    radius: 0.25
+    yaw: 1.57
+    arrival_cost_threshold: 75
+    arrival_distance_tolerance: 0.35
+
+  person:
+    # semantic_name="person"  |  detector_label="person"  |  gazebo_model="person_standing"
+    x: 0.6
+    y: -1.4
+    radius: 0.25
+    yaw: 3.14
+    arrival_cost_threshold: 75
+    arrival_distance_tolerance: 0.35

@@ -1,0 +1,11 @@
+# ROS 2 / colcon
+build/
+install/
+log/
+
+# local build marker
+.build_used_system_python
+
+# Python
+__pycache__/
+*.py[cod]

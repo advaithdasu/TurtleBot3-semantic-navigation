@@ -1,0 +1,75 @@
+# tb3_frontier_exploration — practical parameters
+# Used by frontier_detection_node and goal_assignment_node.
+# Override via launch args or config overlay as needed.
+
+frontier_detection_node:
+  ros__parameters:
+    # Topic to subscribe to for the occupancy grid (e.g. from SLAM or map_server).
+    map_topic: "/map"
+
+    # Topic for the global costmap; used to sample cost at frontier centroids and filter unsafe goals.
+    costmap_topic: "/global_costmap/costmap"
+
+    # Frontiers are published on every map update (callback-driven). No separate rate param in current implementation.
+    frontiers_topic: "/frontiers"
+    frontiers_markers_topic: "/frontiers_markers"
+
+    # Frame for published poses and markers (e.g. "map" with Nav2/SLAM).
+    frame_id: "map"
+
+    # Minimum number of adjacent frontier cells to form a cluster; smaller clusters are discarded.
+    min_cluster_size: 3 # default is 5
+
+    # Max cost at centroid to accept a frontier (0–255). Centroids with cost > this are rejected when use_costmap_filter is true.
+    cost_threshold: 150 # default is 128
+
+    # If true, reject frontier centroids whose costmap cost exceeds cost_threshold.
+    use_costmap_filter: true
+
+    # Visualization: publish raw frontier cells and rejected centroids as markers.
+    publish_raw_markers: true
+    publish_rejected_markers: true
+
+    # If true, print step-by-step frontier debug at INFO; otherwise only at DEBUG.
+    verbose_frontier_logging: false
+
+goal_assignment_node:
+  ros__parameters:
+    # Odometry topic (e.g. /odom or /odometry/filtered from robot_localization).
+    odom_topic: "/odometry/filtered"
+
+    # Nav2 action name for sending navigation goals.
+    navigate_to_pose_action: "navigate_to_pose"
+
+    # Ignore frontier centroids closer than this to the robot (m). Avoids sending trivial goals.
+    min_frontier_distance: 0.5
+
+    # Cancel a goal and try another if it does not complete within this time (s).
+    goal_timeout: 20.0 # default is 60.0
+
+    # Frame for goal poses (typically "map"). Also used for TF lookups (map -> base_link).
+    frame_id: "map"
+    robot_base_frame: "base_link"
+
+    # How often to evaluate and send the next goal (Hz). Only used when idle.
+    rate: 1.0
+
+    # Do not select a goal within this distance (m) of the last failed/aborted goal.
+    failed_goal_avoidance_radius: 1.0
+
+    # Throttle "no valid frontiers" / exploration-complete logs to this interval (s).
+    exploration_complete_log_interval: 5.0
+
+    # Wait for startup_map_warmup_node to publish Bool true on this topic before first frontier goal.
+    require_startup_warmup: true
+    startup_warmup_complete_topic: "exploration_warmup_complete"
+    startup_warmup_timeout_sec: 90.0
+
+    # Anti-loop: drop frontier centroids near map positions already reached successfully >= N times.
+    enable_repeated_centroid_filter: true
+    repeated_centroid_reject_radius: 0.45
+    repeated_centroid_max_visits: 2
+
+    # Selection strategy: "nearest" = choose closest frontier to robot. Other values reserved for future use.
+    # (Current implementation uses nearest only; this documents intended semantics.)
+    # selection_strategy: "nearest"
