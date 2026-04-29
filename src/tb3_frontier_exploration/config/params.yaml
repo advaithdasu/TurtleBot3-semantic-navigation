@@ -123,6 +123,20 @@ goal_assignment_node:
     # frontiers" before stopping. Raise it to be more conservative.
     empty_frontier_streak_threshold: 3
 
+    # Stalemate guard. /frontiers may keep publishing non-empty PoseArrays
+    # consisting entirely of centroids that selectBestFrontier rejects
+    # (anti-loop, failed_goal_avoidance, min_frontier_distance). In that
+    # case `empty_frontier_streak_threshold` would never trigger. If we
+    # also fail to find a low-cost fallback point, the bot would sit idle
+    # forever, logging "No valid frontiers" every 5 s.
+    #
+    # `stalemate_idle_sec` defines how long that "all frontier candidates
+    # filtered AND fallback unavailable" condition has to persist before
+    # we give up and declare exploration complete anyway. 20 s gives Nav2
+    # plenty of time to re-evaluate the costmap, but stops the bot from
+    # hesitating next to a corner person indefinitely.
+    stalemate_idle_sec: 20.0
+
     # What to do when the scan is declared complete:
     #   "stop"        — just stay idle. Cleanest for a demo / debug.
     #   "return_home" — dispatch one Nav2 goal back to the start pose

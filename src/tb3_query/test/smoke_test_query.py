@@ -33,11 +33,23 @@ except ImportError:
 TIMEOUT_SEC = 5.0
 
 TEST_CASES: list[dict] = [
-    {"command": "go to the person",    "expect_success": True,  "expect_name": "person"},
-    {"command": "go to the table",     "expect_success": True,  "expect_name": "table"},
-    {"command": "go to the stop sign", "expect_success": True,  "expect_name": "stop_sign"},
-    {"command": "go to the chair",     "expect_success": False, "expect_name": ""},
-    {"command": "go to the fridge",    "expect_success": False, "expect_name": ""},
+    # Default (no index) — matches whichever person is nearest.
+    {"command": "go to the person",      "expect_success": True,  "expect_name": "person"},
+    {"command": "go to the table",       "expect_success": True,  "expect_name": "table"},
+    {"command": "go to the stop sign",   "expect_success": True,  "expect_name": "stop_sign"},
+    {"command": "go to the chair",       "expect_success": False, "expect_name": ""},
+    {"command": "go to the fridge",      "expect_success": False, "expect_name": ""},
+
+    # Indexed lookups exercising the three accepted spellings of
+    # "<target> <integer>". Success depends on whether the requested
+    # `<label>_<N>` already exists in semantic memory at the time of
+    # the request, so all three are marked optional (the harness reports
+    # rejection as a PASS when expect_success=False).
+    # If you have warehouse_models_person running and the bot has
+    # observed the corresponding person, flip these to expect_success=True.
+    {"command": "go to person 3",        "expect_success": False, "expect_name": "person"},
+    {"command": "go to person_2",        "expect_success": False, "expect_name": "person"},
+    {"command": "go to person number 4", "expect_success": False, "expect_name": "person"},
 ]
 
 

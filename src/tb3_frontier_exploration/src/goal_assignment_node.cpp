@@ -122,6 +122,15 @@ public:
     // because anti-loop's 0.45 m radius is smaller than the fallback radius).
     declare_parameter<bool>("enable_exploration_complete_detection", true);
     declare_parameter<int>("empty_frontier_streak_threshold", 3);
+    // Stalemate guard: also declare exploration complete when the timer
+    // callback fails to dispatch ANY goal for this many seconds in a row,
+    // even though /frontiers is still publishing non-empty PoseArrays.
+    // This catches the failure mode where every centroid is rejected by
+    // selectBestFrontier filters (min_frontier_distance, anti-loop,
+    // failed_goal_avoidance) and selectFallbackGoal also returns nullopt.
+    // Without this, the node would log "No valid frontiers" forever
+    // while the bot sits idle next to a corner.
+    declare_parameter<double>("stalemate_idle_sec", 20.0);
     // Policy when complete: "stop" = stay idle; "return_home" = drive back
     // to the pose recorded at first successful TF lookup.
     declare_parameter<std::string>("on_exploration_complete", "stop");
@@ -188,8 +197,9 @@ public:
     }
     if (get_parameter("enable_exploration_complete_detection").as_bool()) {
       RCLCPP_INFO(get_logger(),
-        "[goal_assignment] Exploration-complete detection ENABLED: streak_threshold=%d, on_complete=%s",
+        "[goal_assignment] Exploration-complete detection ENABLED: streak_threshold=%d, stalemate=%.1fs, on_complete=%s",
         static_cast<int>(get_parameter("empty_frontier_streak_threshold").as_int()),
+        get_parameter("stalemate_idle_sec").as_double(),
         get_parameter("on_exploration_complete").as_string().c_str());
     }
     if (require_startup_warmup_) {
@@ -251,12 +261,15 @@ private:
       empty_frontier_streak_ = 0;
       // If we previously declared the area "complete" and now the costmap
       // produced new frontiers (e.g. someone opened a door / pushed an
-      // object), gracefully resume exploration.
+      // object), gracefully resume exploration. Also clear the stalemate
+      // counter so a fresh resume does not immediately re-trigger
+      // declaration on the next tick.
       if (exploration_complete_) {
         RCLCPP_INFO(get_logger(),
           "[exploration] New frontiers appeared (count=%zu) — resuming.",
           msg->poses.size());
         exploration_complete_ = false;
+        idle_tick_streak_ = 0;
       }
     }
   }
@@ -578,20 +591,55 @@ private:
     }
 
     // ── Path 3: detect "exploration complete" ────────────────────────────
-    // Both the frontier and the fallback paths failed to produce a goal.
-    // If frontier_detection has been reporting empty arrays for K
-    // consecutive ticks AND the robot has actually completed at least one
-    // navigation goal earlier (so we don't trigger before warmup is over),
-    // declare the scan complete and execute the configured policy.
-    if (get_parameter("enable_exploration_complete_detection").as_bool()) {
-      const int threshold = static_cast<int>(
+    // We reach here only when BOTH the frontier and the fallback paths
+    // failed to produce a goal this tick. Two complementary triggers:
+    //
+    //   (a) `empty_frontier_streak_` ≥ threshold:
+    //       /frontiers has been an empty PoseArray for K consecutive
+    //       publishes — frontier_detection has nothing to offer.
+    //
+    //   (b) `idle_tick_streak_` × period ≥ stalemate_idle_sec:
+    //       /frontiers is still publishing centroids but selectBestFrontier
+    //       rejects all of them (anti-loop, failed_goal_avoidance,
+    //       min_frontier_distance) AND fallback also returns nullopt.
+    //       This is the "bot hesitates next to a corner person" failure
+    //       mode the operator hit. Without (b) the node logs "No valid
+    //       frontiers" forever instead of declaring complete.
+    //
+    // `++idle_tick_streak_` lives at the very end of timerCallback so it
+    // ticks exactly once per missed-dispatch tick. dispatchNavGoal()
+    // resets it to 0 on any successful dispatch.
+    const bool moved_at_least_once = !visit_history_.empty();
+    if (get_parameter("enable_exploration_complete_detection").as_bool() &&
+        moved_at_least_once)
+    {
+      const int empty_threshold = static_cast<int>(
         get_parameter("empty_frontier_streak_threshold").as_int());
-      const bool moved_at_least_once = !visit_history_.empty();
-      if (empty_frontier_streak_ >= threshold && moved_at_least_once) {
+      const double stalemate_sec =
+        get_parameter("stalemate_idle_sec").as_double();
+      const double rate_hz = get_parameter("rate").as_double();
+      const int stalemate_threshold_ticks = (rate_hz > 0.0)
+        ? static_cast<int>(stalemate_sec * rate_hz)
+        : std::numeric_limits<int>::max();
+
+      const bool empty_done = empty_frontier_streak_ >= empty_threshold;
+      const bool stalemate_done = idle_tick_streak_ >= stalemate_threshold_ticks;
+
+      if (empty_done || stalemate_done) {
+        const char * reason = empty_done
+          ? "empty /frontiers streak"
+          : "stalemate (no goal dispatched for ≥ stalemate_idle_sec)";
+        RCLCPP_INFO(get_logger(),
+          "[complete-trigger] %s — empty_streak=%d, idle_ticks=%d",
+          reason, empty_frontier_streak_, idle_tick_streak_);
         declareExplorationComplete(frame_id);
         return;
       }
     }
+
+    // No goal was dispatched this tick. Increment the stalemate counter
+    // so trigger (b) above eventually fires.
+    ++idle_tick_streak_;
 
     logExplorationCompleteIfDue();
   }
@@ -654,6 +702,12 @@ private:
    */
   void dispatchNavGoal(double gx, double gy, const std::string & frame_id, const char * source)
   {
+    // Reset stalemate counter on any successful dispatch (regardless of
+    // path). The counter only ticks up when timerCallback reaches its
+    // tail without dispatching, so this is the single canonical place
+    // to clear it.
+    idle_tick_streak_ = 0;
+
     NavigateToPose::Goal goal;
     goal.pose.header.stamp = now();
     goal.pose.header.frame_id = frame_id;
@@ -959,6 +1013,12 @@ private:
   // `empty_frontier_streak_threshold` AND the robot has already reached at
   // least one goal, timerCallback declares exploration complete.
   int empty_frontier_streak_{0};
+  // Counter of consecutive timerCallback ticks where neither the frontier
+  // path nor the fallback path managed to dispatch a goal. Cleared by
+  // dispatchNavGoal() on any successful dispatch. Used to break the
+  // "frontiers exist but every candidate is filtered" stalemate where
+  // empty_frontier_streak_ would never grow.
+  int idle_tick_streak_{0};
   // Set true by declareExplorationComplete; cleared by frontiersCallback
   // when a non-empty PoseArray arrives. Gates the timer short-circuit.
   bool exploration_complete_{false};

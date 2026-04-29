@@ -139,9 +139,9 @@ class SemanticQueryNode(Node):
         raw = msg.data.strip()
         self.get_logger().info("Command received: '%s'" % raw)
 
-        semantic_name = parse_command(raw, self._known_targets)
+        parsed = parse_command(raw, self._known_targets)
 
-        if semantic_name is None:
+        if parsed is None:
             self._publish_failure(
                 raw, "", "",
                 f"unsupported semantic target in: '{raw}' "
@@ -149,6 +149,7 @@ class SemanticQueryNode(Node):
             )
             return
 
+        semantic_name = parsed.semantic_name
         detector_label = self._sem2det.get(semantic_name, "")
         if not detector_label:
             self._publish_failure(
@@ -157,8 +158,18 @@ class SemanticQueryNode(Node):
             )
             return
 
+        if parsed.desired_index is not None:
+            self.get_logger().info(
+                "Parsed: semantic='%s'  desired_index=%d"
+                % (semantic_name, parsed.desired_index)
+            )
+
         result = select_target(
-            self._memory_objects, semantic_name, detector_label, raw
+            self._memory_objects,
+            semantic_name,
+            detector_label,
+            raw,
+            desired_index=parsed.desired_index,
         )
 
         out = SemanticQueryResult()

@@ -41,11 +41,32 @@ semantic_map_memory_node:
     publish_rate:             1.0
 
     # ── Landmark matching ──────────────────────────────────
-    merge_distance:           0.8
-    candidate_merge_distance: 0.8
+    # Tolerance for "this observation belongs to an existing landmark".
+    # Bumped 0.8 → 1.5 m because in practice a single physical person is
+    # observed from many viewpoints and the projected (x, y) wanders by
+    # 0.3–0.5 m due to:
+    #   * YOLO bbox center ≠ the LiDAR centroid of the person's legs
+    #     (bbox includes arms / clothing → ±0.15 m offset).
+    #   * LDS-01 returns at ankle height bounce off either leg
+    #     depending on angle → ±0.1 m range jitter.
+    #   * SLAM map→odom drift in feature-poor middle of the warehouse
+    #     (LDS-01 range 3.5 m vs 6×10 m room) adds another ±0.3 m.
+    #   * Bot impacts on a `<static>` person model can't move the
+    #     person but momentarily pitch the chassis — pitched LDS rays
+    #     hit the floor, which SLAM rasterizes as fake obstacles, so
+    #     subsequent "snap to nearest island" can pull the projection
+    #     onto a phantom obstacle a meter away from the real person.
+    # 1.5 m is well below the inter-person spacing in the
+    # `warehouse_models_person` world (corner ↔ centre = 4.47 m), so
+    # legitimately separate persons will not be merged.
+    merge_distance:           1.5
+    candidate_merge_distance: 1.5
 
     # ── Promotion ──────────────────────────────────────────
-    # Observations needed before a candidate becomes a persistent landmark.
+    # Generic fallback (any class without a class-specific override
+    # below uses this). Kept at 3 because most non-person classes
+    # (table, stop_sign) appear once per world and small numbers are
+    # fine.
     min_observations:         3
 
     # ── Obstacle island search ─────────────────────────────
@@ -71,7 +92,14 @@ semantic_map_memory_node:
     person_max_range_m:        2.5
     bench_max_range_m:         2.0
     stop_sign_max_range_m:     1.8
-    person_min_observations:   3
+    # Promotion threshold for `person` candidates. Bumped 3 → 8 to
+    # filter out ghost landmarks created by transient mis-projections
+    # near a real person (typical symptom: a `person_N` with n=4 or
+    # n=5 sitting 0.5–1 m next to a high-confidence `person_M` with
+    # n=50+). Real persons in `warehouse_models_person` accumulate
+    # n ≥ 19 once the bot finishes exploring, so 8 is well below the
+    # natural support of every legitimate landmark.
+    person_min_observations:   8
     bench_min_observations:    4
     stop_sign_min_observations: 5
     wall_boundary_margin_m:   0.20
