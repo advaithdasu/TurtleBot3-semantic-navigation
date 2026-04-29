@@ -15,6 +15,22 @@ coordinator_node:
     auto_resume_exploration:  true
     resume_delay_sec:         3.0
 
+    # ── Perception sweep (disabled by default) ─────────────────
+    # The 360° in-place sweep was originally meant to "kick-start" SLAM by
+    # exposing the surrounding semantics, but in practice spinning in place
+    # provides almost no SLAM benefit (the laser only sees what is already in
+    # line of sight from the current pose) while costing ~18 s and stressing
+    # the TF cache (we observed `Message Filter dropping message` during sweeps).
+    #
+    # The replacement bootstrap strategy now lives in goal_assignment_node:
+    # when exploration is enabled but no valid frontier exists, that node
+    # picks a low-cost point in the global costmap around the robot and
+    # sends it to Nav2. This actually moves the robot, which actually
+    # grows the map.
+    #
+    # Flip this back to `true` to restore the legacy spin behavior.
+    enable_perception_sweep:  false
+
 semantic_map_memory_node:
   ros__parameters:
     input_topic:              "/semantic_memory_node/objects"

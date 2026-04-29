@@ -90,6 +90,22 @@ def generate_launch_description():
     # params_file must be explicit to avoid empty-path errors from ParameterFile.
     dummy_map = os.path.join(pkg_nav2, "maps", "turtlebot3_world.yaml")
     nav2_params = os.path.join(pkg_nav2, "params", "nav2_params.yaml")
+    # Mute the very noisy `worldToMap failed: mx,my: ...` ERROR that
+    # planner_server prints whenever the costmap inflation samples one cell
+    # past the static-map boundary. It is benign in Nav2 Humble (planning
+    # still succeeds and the goal is reached), but it floods the terminal
+    # at planning rate.
+    #
+    # nav2_bringup forwards this single string verbatim as
+    # `--ros-args --log-level <value>` to every Nav2 node. ROS 2's
+    # `--log-level` supports a per-logger form `<logger>:=<level>`; when
+    # passed a logger name that does not exist on the receiving node the
+    # rcl logging machinery silently ignores it and the process default
+    # stays at INFO. Therefore `planner_server:=fatal`:
+    #   • on planner_server  → matches its node logger → silenced.
+    #   • on every other Nav2 node (bt_navigator, controller_server, …)
+    #     → no such logger → INFO defaults preserved, goal lifecycle and
+    #     recoveries still print.
     nav2 = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(pkg_nav2, "launch", "bringup_launch.py")
@@ -101,6 +117,7 @@ def generate_launch_description():
             "params_file": nav2_params,
             "autostart": "True",
             "use_composition": "False",
+            "log_level": "planner_server:=fatal",
         }.items(),
     )
 
@@ -182,22 +199,26 @@ def generate_launch_description():
         DeclareLaunchArgument("y_pose", default_value="-1.2"),
 
         # Phase 1: simulation + navigation infrastructure
+        # Nav2 (autostart=True) needs Gazebo + SLAM to publish /map before
+        # planner_server can finish configure(); 10s is a safer buffer than 5s
+        # to absorb CPU jitter (otherwise lifecycle_manager hangs on
+        # "Waiting for service planner_server/get_state...").
         *gazebo,
-        TimerAction(period=5.0, actions=[nav2]),
+        TimerAction(period=10.0, actions=[nav2]),
 
         # Phase 2: exploration + perception (after Nav2 has time to start)
-        TimerAction(period=15.0, actions=[exploration]),
-        TimerAction(period=10.0, actions=[detector]),
-        TimerAction(period=10.0, actions=[localizer]),
-        TimerAction(period=10.0, actions=[memory]),
-        TimerAction(period=10.0, actions=[query]),
-        TimerAction(period=10.0, actions=[nav_adapter]),
+        TimerAction(period=20.0, actions=[exploration]),
+        TimerAction(period=15.0, actions=[detector]),
+        TimerAction(period=15.0, actions=[localizer]),
+        TimerAction(period=15.0, actions=[memory]),
+        TimerAction(period=15.0, actions=[query]),
+        TimerAction(period=15.0, actions=[nav_adapter]),
 
         # Phase 3: coordinator (after everything else is up)
-        TimerAction(period=18.0, actions=[coordinator]),
+        TimerAction(period=23.0, actions=[coordinator]),
 
         # Persistent semantic map memory + RViz visualization
-        TimerAction(period=12.0, actions=[
+        TimerAction(period=17.0, actions=[
             Node(
                 package="tb3_coordinator",
                 executable="semantic_map_memory_node",
@@ -218,7 +239,7 @@ def generate_launch_description():
         # Runtime debug diagnostics (gated by use_runtime_debug arg)
         DeclareLaunchArgument("use_runtime_debug", default_value="false",
                               description="Launch semantic runtime debug node"),
-        TimerAction(period=12.0, actions=[
+        TimerAction(period=17.0, actions=[
             Node(
                 package="tb3_coordinator",
                 executable="semantic_runtime_debug_node",

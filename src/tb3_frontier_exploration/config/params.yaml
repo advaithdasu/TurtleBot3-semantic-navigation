@@ -73,3 +73,60 @@ goal_assignment_node:
     # Selection strategy: "nearest" = choose closest frontier to robot. Other values reserved for future use.
     # (Current implementation uses nearest only; this documents intended semantics.)
     # selection_strategy: "nearest"
+
+    # ── Bootstrap-drive fallback ─────────────────────────────────────────
+    # Replaces the legacy in-place 360° perception sweep. When exploration
+    # is enabled but no frontier centroid passes the filters above (typical
+    # at startup before SLAM has grown the map, or after a single goal has
+    # been completed and only one short-distance frontier remains), this
+    # node samples points around the robot, looks up their cost in the
+    # global costmap, and sends the lowest-cost reachable one to Nav2.
+    # The robot actually translates, SLAM grows the map, and the normal
+    # frontier loop resumes on its own when new frontiers appear.
+    enable_fallback_drive: true
+
+    # Topic of the OccupancyGrid we query for cell costs. Same one Nav2
+    # planner uses; published with TRANSIENT_LOCAL durability.
+    fallback_costmap_topic: "/global_costmap/costmap"
+
+    # Distance from the robot at which candidate goal points are placed (m).
+    # Keep it short so the bot makes incremental progress and the local
+    # planner can plan inside the local costmap window.
+    fallback_radius_m: 1.5
+
+    # Number of evenly spaced angles to sample on that circle.
+    # 16 = every 22.5°, plenty for bootstrap movement without much CPU.
+    fallback_num_samples: 16
+
+    # OccupancyGrid cost above which a sample is rejected (0–100).
+    # 60 keeps us well below the lethal/inflated band but still allows
+    # picking through narrow corridors when nothing perfectly free exists.
+    fallback_max_cost: 60
+
+    # Minimum gap between two fallback dispatches (s). Prevents firing
+    # another goal every timer tick while Nav2 is still reacting to the
+    # previous one — without this, abort/cancel cycles can spam the action
+    # server during transient costmap updates.
+    fallback_cooldown_sec: 4.0
+
+    # ── Exploration-complete detection ───────────────────────────────────
+    # Once the SLAM scan has converged (frontier_detection consistently
+    # reports zero safe centroids) the bot has nothing useful to chase
+    # anymore. Without this guard the fallback path picks low-cost points
+    # *inside the already-known map*, so the robot would bounce between
+    # explored regions forever (e.g. (1.00, 1.44) ↔ (0.94, -0.28)).
+    enable_exploration_complete_detection: true
+
+    # Number of consecutive `/frontiers` messages with zero poses required
+    # to declare the scan complete. frontier_detection publishes once per
+    # map update (≈ 5 s in this stack), so 3 × 5 s ≈ 15 s of "no new
+    # frontiers" before stopping. Raise it to be more conservative.
+    empty_frontier_streak_threshold: 3
+
+    # What to do when the scan is declared complete:
+    #   "stop"        — just stay idle. Cleanest for a demo / debug.
+    #   "return_home" — dispatch one Nav2 goal back to the start pose
+    #                   (recorded from TF on first successful lookup).
+    # In both cases new frontiers (e.g. door opens, object moves) will
+    # automatically resume exploration via frontiersCallback.
+    on_exploration_complete: "stop"
