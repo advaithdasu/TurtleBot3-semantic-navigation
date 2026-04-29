@@ -10,6 +10,18 @@ by simple text commands (e.g. `go to person`, `go to bench`).
 
 ## Quick build
 
+**Before building: download YOLOv8n weights (~6 MB).**
+
+ and the **"Detector Debug Image"** panel in RViz stays blank ("No Image").
+
+```bash
+ cd ~/TurtleBot3-semantic-navigation
+ wget -O src/tb3_detector/models/yolov8n.pt \
+   https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8n.pt
+```
+
+
+One-click start
 ```bash
 cd ~/TurtleBot3-semantic-navigation
 ./build.sh
