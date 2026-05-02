@@ -1,12 +1,135 @@
 # TurtleBot3 Semantic Navigation (ROS 2)
 
-Standalone extraction of the TB3 Semantic Navigation stack: YOLOv8 detection, LiDAR–camera
-localization, persistent semantic landmarks on a SLAM map, and Nav2 goal execution driven
-by simple text commands (e.g. `go to person`, `go to bench`).
+Standalone extraction of the TurtleBot3 semantic navigation stack: YOLOv8n object detection,
+camera–LiDAR object localization, persistent semantic landmarks on a SLAM map, and Nav2 goal
+execution driven by simple rule-based text commands (e.g. `go to person`, `go to bench`).
 
-**Stack:** Ubuntu 22.04 · ROS 2 Humble · Gazebo Classic · TurtleBot3 `waffle_pi` · YOLOv8n · Nav2 (+ SLAM via `nav2_bringup` with `slam:=True`).
+**Stack:** Ubuntu 22.04 · ROS 2 Humble · Gazebo Classic · TurtleBot3 `waffle_pi` · YOLOv8n · Nav2 · SLAM Toolbox launched through `nav2_bringup` with `slam:=True`.
 
-**Demo:** [screen recording (Google Drive)](https://drive.google.com/file/d/1xzl9NxP-YBjH4GugFu1Khj3FsQV0fiyI/view?usp=sharing)
+## Project Highlights
+
+- **End-to-end semantic navigation pipeline on TurtleBot3 Waffle Pi**, from perception and SLAM through semantic memory to Nav2 goal execution, brought up by a single `ros2 launch` entry point.
+- **YOLOv8n integrated into ROS 2** as a detector node that consumes `sensor_msgs/Image`, publishes standard `vision_msgs/Detection2DArray`, and exposes an annotated debug image for RViz.
+- **Camera–LiDAR object localization** that converts each YOLO bounding-box centre into a bearing through the camera FOV and looks up a robust median range from a small `LaserScan` window to produce per-object `(x, y)` positions.
+- **Semantic memory with deterministic `<label>_<seq>` IDs**, label-aware nearest-neighbour association, EMA position smoothing, and stale/remove aging, so repeated observations of the same physical object collapse into a single addressable landmark.
+- **Persistent semantic landmarks on the SLAM map**, validated against the live occupancy grid (wall-island rejection, snap to obstacle-island centroid) and republished as `MarkerArray` overlays in RViz.
+- **Rule-based natural-language-style terminal commands** (`go to person`, `go to person 3`, `please navigate to the bench`, …) handled deterministically with **no LLM**, supporting nearest-target and indexed selection over semantic memory.
+- **Coordinator state machine** that pauses frontier exploration on a user command, dispatches the goal through Nav2's `NavigateToPose` action with cancellation and timeouts, and auto-resumes exploration when the target is reached or aborted.
+
+## Demo Videos
+
+### Demo 1 — Bench/Person Semantic Navigation
+
+This demo shows TurtleBot3 Waffle Pi exploring an initially unknown 4×6 warehouse and building a SLAM map from scratch. YOLOv8n detects a table/bench target and a person; the camera–LiDAR localizer places them as semantic landmarks on the SLAM map, and a rule-based terminal command navigates the robot to the selected target through Nav2.
+
+The full demo video is shown at 2x speed.
+
+**Detection and semantic mapping**
+
+![Demo 1 Detection and Semantic Mapping](docs/media/demo_1_detection_semantic_marker.gif)
+
+**Command-based navigation**
+
+![Demo 1 Command-Based Navigation](docs/media/demo_1_command_navigation.gif)
+
+Full demo: [Google Drive](https://drive.google.com/file/d/1D3oExylmRMmw4Q7x_d1_mcE8EcazT35I/view?usp=sharing)
+
+---
+
+### Demo 2 — Multi-Person Semantic Navigation with Memory Indexing
+
+This demo shows TurtleBot3 Waffle Pi exploring an initially unknown 6×6 warehouse, building a SLAM map from scratch, detecting five identical person models with YOLOv8n, storing them as memory-indexed semantic landmarks (`person_0`, `person_1`, …), and navigating to a selected instance through a rule-based terminal command.
+
+The full demo video is shown at 4x speed.
+
+**Note:** Person IDs are assigned by detection/memory order. The current system does **not** perform person re-identification and does **not** distinguish individual human identities — `person_N` is a memory slot, not a recognised person.
+
+**Multi-person semantic mapping**
+
+![Demo 2 Multi-Person Semantic Mapping](docs/media/demo_2_multi_person_semantic_markers.gif)
+
+**Command-based navigation**
+
+![Demo 2 Command-Based Navigation](docs/media/demo_2_command_navigation.gif)
+
+Full demo: [Google Drive](https://drive.google.com/file/d/1Qzl15Erv7ww3lYTszrFD-1H1IQfuDk9D/view?usp=sharing)
+
+## System Pipeline
+
+```text
+   ┌──────────────────────────────────────────────────────────┐
+   │   Gazebo Classic + TurtleBot3 Waffle Pi simulation       │
+   │   (custom 4×6 / 6×6 warehouse worlds)                    │
+   └──────────┬─────────────────────────────────┬─────────────┘
+              │ /camera/image_raw               │ /scan
+              ▼                                 │
+   ┌──────────────────────────┐                 │
+   │  tb3_detector            │                 │
+   │  YOLOv8n inference       │                 │
+   │  → Detection2DArray      │                 │
+   │  + ~/debug_image (RViz)  │                 │
+   └──────────┬───────────────┘                 │
+              │                                 │
+              ▼                                 ▼
+   ┌─────────────────────────────────────────────────────────┐
+   │  tb3_localizer                                          │
+   │  pixel → camera-FOV bearing                             │
+   │  + windowed median LiDAR range → (x, y) in base_link    │
+   └──────────┬──────────────────────────────────────────────┘
+              │
+              ▼
+   ┌─────────────────────────────────────────────────────────┐
+   │  tb3_memory / semantic_memory_node                      │
+   │  label-aware nearest-neighbour association,             │
+   │  EMA position smoothing, stale/remove aging             │
+   │  → object_id = "<label>_<seq>"                          │
+   └──────────┬──────────────────────────────────────────────┘
+              │ ~/objects                ┌────────────────────────┐
+              ├─────────────────────────►│  SLAM Toolbox          │
+              │                          │  (via nav2_bringup,    │
+              │                          │   slam:=True) → /map   │
+              ▼                          └──────────┬─────────────┘
+   ┌─────────────────────────────────────────────┐ │
+   │  tb3_coordinator/semantic_map_memory_node   │◄┘  /map
+   │  TF base_link→map, occupancy-grid           │
+   │  validation, persistent semantic landmarks  │
+   │  → MarkerArray on the SLAM map              │
+   └─────────────────────────────────────────────┘
+
+   terminal command
+   "go to person 3"  /  "please navigate to the bench"
+              │  /user_command
+              ▼
+   ┌─────────────────────────────────────────────┐
+   │  tb3_coordinator (state machine)            │
+   │  pauses frontier exploration, cancels any   │
+   │  prior Nav2 goal, forwards the command      │
+   └──────────┬──────────────────────────────────┘
+              ▼
+   ┌─────────────────────────────────────────────┐
+   │  tb3_query (rule-based, no LLM)             │
+   │  filler-word stripping, phrase aliases,     │
+   │  index/nearest selection over memory        │
+   │  → SemanticQueryResult                      │
+   └──────────┬──────────────────────────────────┘
+              ▼
+   ┌─────────────────────────────────────────────┐
+   │  tb3_nav_adapter                            │
+   │  computes safe standoff approach pose,      │
+   │  TF base_link → map → PoseStamped           │
+   └──────────┬──────────────────────────────────┘
+              ▼
+   ┌─────────────────────────────────────────────┐
+   │  Nav2 NavigateToPose action                 │
+   │  global+local planner, controller,          │
+   │  recoveries on the SLAM map                 │
+   └──────────┬──────────────────────────────────┘
+              ▼
+        TurtleBot3 drives to the
+        selected semantic landmark
+```
+
+The simulated TurtleBot3 streams a forward RGB image and a 360° LiDAR scan into ROS 2. `tb3_detector` runs YOLOv8n on every frame and publishes 2D detections, while `tb3_localizer` converts each bounding-box centre into a camera-frame bearing and looks up a robust median range from a small LiDAR window to obtain an `(x, y)` position in `base_link`. `tb3_memory` merges those observations into stable semantic landmarks with deterministic `<label>_<seq>` IDs, and `semantic_map_memory_node` snaps them onto the live SLAM Toolbox map for RViz overlay. A terminal command on `/user_command` is intercepted by the coordinator, parsed by the **deterministic, rule-based** `tb3_query` node (no LLM), turned into a safe approach pose by `tb3_nav_adapter`, and executed by Nav2's `NavigateToPose` action — after which the coordinator resumes frontier exploration. The `<label>_<seq>` IDs are semantic-memory slots, not identity recognition; the system does not perform person re-identification.
 
 ## Quick build
 
@@ -85,14 +208,14 @@ or an absolute path to a .world file.
 
 ### Send semantic commands (second terminal, same workspace sourced)
 
-Commands are handled by a **small rule-based parser** in `tb3_query` (`parse_command` in `src/tb3_query/tb3_query/query_core.py`): it lowercases text, strips punctuation, drops a fixed **filler** word list (`go`, `to`, `the`, `please`, `navigate`, …), then resolves **canonical targets** loaded from `semantic_targets.yaml` (only entries with `enabled: true`). There is **no LLM**; extra words are ignored unless they appear before a recognized target token.
+The command interface accepts natural-language-*style* phrases, but the parser is **deterministic and rule-based — there is no LLM**. `parse_command` in [`src/tb3_query/tb3_query/query_core.py`](src/tb3_query/tb3_query/query_core.py) lowercases the input, strips punctuation, drops a fixed **filler** word list (`go`, `to`, `the`, `please`, `navigate`, …), and then resolves the remaining tokens against the **canonical targets** loaded from `semantic_targets.yaml` (only entries with `enabled: true`). Extra words are ignored unless they appear before a recognized target token.
 
-**Currently enabled semantic names:** `table`, `person` (see `src/tb3_frontier_exploration/config/semantic_targets.yaml`). Phrase alias: **`bench` → `table`** (so “bench” commands still navigate to the table landmark).
+**Currently enabled semantic names:** `table`, `person` (see `src/tb3_frontier_exploration/config/semantic_targets.yaml`). Phrase alias `bench → table` is applied at parse time, so commands containing `bench` resolve to the `table` landmark.
 
 **Selection policy:**
 
 - `go to person`  → the **nearest** observed person (no number means nearest).
-- `go to person N` → the specific instance with `object_id == person_N` in semantic memory. Memory assigns ids `person_0, person_1, …` in **observation order** (per [`tb3_memory/memory_core.py`](src/tb3_memory/tb3_memory/memory_core.py)), so which physical figure ends up as which `person_N` depends on the path the bot took. Inspect with `ros2 topic echo /semantic_memory_node/objects` to see the live mapping.
+- `go to person N` → the specific instance with `object_id == person_N` in semantic memory. Memory assigns ids `person_0, person_1, …` in **observation order** (per [`tb3_memory/memory_core.py`](src/tb3_memory/tb3_memory/memory_core.py)), so `person_N` is a memory slot — it is **not** an identity-recognised person, and the same physical figure may end up as a different `person_N` across runs depending on the path the robot took. Inspect with `ros2 topic echo /semantic_memory_node/objects` to see the live mapping.
 - Recognised number forms: `person 3`, `person_3`, `person3`, `person number 3`, `person no 5`.
 - Same rules apply to `table` (in worlds where multiple tables exist).
 
@@ -104,7 +227,7 @@ ros2 topic pub --once /user_command std_msgs/String "data: 'go to person'"
 ```
 
 ```bash
-# Specific id "person_3" (the 4th-observed person — see selection policy)
+# Memory slot "person_3" (the 4th observation, 0-indexed; not an identity — see selection policy)
 ros2 topic pub --once /user_command std_msgs/String "data: 'go to person 3'"
 ```
 
@@ -145,8 +268,45 @@ ros2 topic pub --once /user_command std_msgs/String "data: 'find a person for me
 
 `tb3_detector` · `tb3_localizer` · `tb3_memory` · `tb3_coordinator` (+ `semantic_map_memory_node`) · `tb3_query` · `tb3_nav_adapter` · `tb3_frontier_exploration`.
 
+Persistent semantic landmarks rendered on the SLAM map come from
+[`tb3_coordinator/semantic_map_memory_node`](src/tb3_coordinator/tb3_coordinator/semantic_map_memory_node.py),
+which TFs each `tb3_memory` observation into the `map` frame, validates it
+against the live occupancy grid, and republishes confirmed landmarks as a
+`MarkerArray` for RViz.
+
 Canonical semantic name mapping lives in
 `src/tb3_frontier_exploration/config/semantic_targets.yaml`.
 
-The YOLOv8n weights ship at
-`src/tb3_detector/models/yolov8n.pt`.
+The YOLOv8n weights are expected at
+`src/tb3_detector/models/yolov8n.pt`. They are **not committed** to the
+repository (see `src/tb3_detector/models/.gitignore`); download them
+locally before the first build by following the [Quick build](#quick-build)
+section.
+
+## My Contributions
+
+This project uses standard, well-known robotics components — ROS 2 Humble, Gazebo Classic, TurtleBot3, SLAM Toolbox, Nav2, and the Ultralytics YOLOv8n model. My contribution is the design and implementation of the integration layer that turns those components into a single working TurtleBot3 semantic-navigation pipeline.
+
+Specifically, I:
+
+- **Designed and implemented the end-to-end ROS 2 semantic navigation pipeline**, from perception and SLAM through semantic memory to Nav2 goal execution, brought up by a single launch file.
+- **Organized the system into seven focused ROS 2 packages** with clean topic and message contracts: `tb3_detector`, `tb3_localizer`, `tb3_memory`, `tb3_query`, `tb3_nav_adapter`, `tb3_coordinator`, and `tb3_frontier_exploration`.
+- **Integrated YOLOv8n with ROS 2** through a wrapper node that consumes `sensor_msgs/Image`, runs Ultralytics inference with configurable confidence and class filters, and publishes standard `vision_msgs/Detection2DArray` plus an annotated debug image for RViz.
+- **Implemented camera–LiDAR object localization**: pixel-to-bearing conversion through the camera HFOV, robust windowed `LaserScan` range estimation, and planar projection to `(x, y)` in `base_link`, with TF transformation to the SLAM `map` frame.
+- **Built the semantic memory and semantic-landmark behaviour** — label-aware nearest-neighbour association, EMA position smoothing, deterministic `<label>_<seq>` IDs, stale/remove aging, and occupancy-grid-validated landmark promotion rendered as a `MarkerArray` on the SLAM map.
+- **Implemented deterministic, natural-language-style terminal commands without an LLM**: filler-word stripping, multi-word phrase aliases (e.g. `bench → table`), several index forms (`person 3`, `person_3`, `person3`, `person number 3`), and nearest-vs-indexed selection policies over semantic memory.
+- **Connected semantic target selection to Nav2** through a goal adapter that computes a safe standoff approach pose and a coordinator state machine (`EXPLORING → SEMANTIC_QUERYING → SEMANTIC_NAV → TARGET_REACHED/FAILED`) that drives `NavigateToPose` with cancellation, timeouts, and auto-resume of frontier exploration.
+- **Designed the Gazebo test worlds** (4×6 single-bench/person and 6×6 five-person scenarios) and **recorded the demo videos and GIF previews** used in this README.
+- **Debugged, tested, documented, and validated the system in simulation**, and wrote the user-facing setup, command, and troubleshooting documentation.
+
+The underlying detection model, SLAM stack, navigation stack, simulator, and robot platform are not my own work; my work is the architecture, ROS 2 integration, perception-to-navigation glue, semantic memory behavior, test worlds, documentation, and demonstrations that make them function together as a semantic-navigation system.
+
+## Development History
+
+This repository is a cleaned standalone version of my TurtleBot3 semantic navigation work. It is intended to make the system easier to review, reproduce, and demonstrate.
+
+Earlier development workspace:
+
+- <https://github.com/YiyuchenHu/quadruped-semantic-navigation>
+
+The earlier workspace contains broader experiments and development history across a larger robotics project. This repository keeps the TurtleBot3 semantic navigation stack organized as a focused demonstration and reproducible project.
