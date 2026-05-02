@@ -11,7 +11,7 @@ execution driven by simple rule-based text commands (e.g. `go to person`, `go to
 - **End-to-end semantic navigation pipeline on TurtleBot3 Waffle Pi**, from perception and SLAM through semantic memory to Nav2 goal execution, brought up by a single `ros2 launch` entry point.
 - **YOLOv8n integrated into ROS 2** as a detector node that consumes `sensor_msgs/Image`, publishes standard `vision_msgs/Detection2DArray`, and exposes an annotated debug image for RViz.
 - **Camera–LiDAR object localization** that converts each YOLO bounding-box centre into a bearing through the camera FOV and looks up a robust median range from a small `LaserScan` window to produce per-object `(x, y)` positions.
-- **Semantic memory with deterministic `<label>_<seq>` IDs**, label-aware nearest-neighbour association, EMA position smoothing, and stale/remove aging, so repeated observations of the same physical object collapse into a single addressable landmark.
+- **Semantic memory with deterministic per-class IDs** such as `person_0`, `person_1`, …, label-aware nearest-neighbour association, EMA position smoothing, and stale/remove aging, so repeated observations of the same physical object collapse into a single addressable landmark.
 - **Persistent semantic landmarks on the SLAM map**, validated against the live occupancy grid (wall-island rejection, snap to obstacle-island centroid) and republished as `MarkerArray` overlays in RViz.
 - **Rule-based natural-language-style terminal commands** (`go to person`, `go to person 3`, `please navigate to the bench`, …) handled deterministically with **no LLM**, supporting nearest-target and indexed selection over semantic memory.
 - **Coordinator state machine** that pauses frontier exploration on a user command, dispatches the goal through Nav2's `NavigateToPose` action with cancellation and timeouts, and auto-resumes exploration when the target is reached or aborted.
@@ -42,7 +42,7 @@ This demo shows TurtleBot3 Waffle Pi exploring an initially unknown 6×6 warehou
 
 The full demo video is shown at 4x speed.
 
-**Note:** Person IDs are assigned by detection/memory order. The current system does **not** perform person re-identification and does **not** distinguish individual human identities — `person_N` is a memory slot, not a recognised person.
+**Note:** Person IDs such as `person_3` are memory indices assigned by detection order, not human identity recognition.
 
 **Multi-person semantic mapping**
 
@@ -129,7 +129,7 @@ Full demo: [Google Drive](https://drive.google.com/file/d/1Qzl15Erv7ww3lYTszrFD-
         selected semantic landmark
 ```
 
-The simulated TurtleBot3 streams a forward RGB image and a 360° LiDAR scan into ROS 2. `tb3_detector` runs YOLOv8n on every frame and publishes 2D detections, while `tb3_localizer` converts each bounding-box centre into a camera-frame bearing and looks up a robust median range from a small LiDAR window to obtain an `(x, y)` position in `base_link`. `tb3_memory` merges those observations into stable semantic landmarks with deterministic `<label>_<seq>` IDs, and `semantic_map_memory_node` snaps them onto the live SLAM Toolbox map for RViz overlay. A terminal command on `/user_command` is intercepted by the coordinator, parsed by the **deterministic, rule-based** `tb3_query` node (no LLM), turned into a safe approach pose by `tb3_nav_adapter`, and executed by Nav2's `NavigateToPose` action — after which the coordinator resumes frontier exploration. The `<label>_<seq>` IDs are semantic-memory slots, not identity recognition; the system does not perform person re-identification.
+The simulated TurtleBot3 streams a forward RGB image and a 360° LiDAR scan into ROS 2. `tb3_detector` runs YOLOv8n on every frame and publishes 2D detections, while `tb3_localizer` converts each bounding-box centre into a camera-frame bearing and looks up a robust median range from a small LiDAR window to obtain an `(x, y)` position in `base_link`. `tb3_memory` merges those observations into stable semantic landmarks with deterministic per-class IDs such as `person_0`, `person_1`, …, and `semantic_map_memory_node` snaps them onto the live SLAM Toolbox map for RViz overlay. A terminal command on `/user_command` is intercepted by the coordinator, parsed by the **deterministic, rule-based** `tb3_query` node (no LLM), turned into a safe approach pose by `tb3_nav_adapter`, and executed by Nav2's `NavigateToPose` action — after which the coordinator resumes frontier exploration. These IDs (e.g. `person_3`) are semantic-memory slots, not identity recognition; the system does not perform person re-identification.
 
 ## Quick build
 
@@ -293,7 +293,7 @@ Specifically, I:
 - **Organized the system into seven focused ROS 2 packages** with clean topic and message contracts: `tb3_detector`, `tb3_localizer`, `tb3_memory`, `tb3_query`, `tb3_nav_adapter`, `tb3_coordinator`, and `tb3_frontier_exploration`.
 - **Integrated YOLOv8n with ROS 2** through a wrapper node that consumes `sensor_msgs/Image`, runs Ultralytics inference with configurable confidence and class filters, and publishes standard `vision_msgs/Detection2DArray` plus an annotated debug image for RViz.
 - **Implemented camera–LiDAR object localization**: pixel-to-bearing conversion through the camera HFOV, robust windowed `LaserScan` range estimation, and planar projection to `(x, y)` in `base_link`, with TF transformation to the SLAM `map` frame.
-- **Built the semantic memory and semantic-landmark behaviour** — label-aware nearest-neighbour association, EMA position smoothing, deterministic `<label>_<seq>` IDs, stale/remove aging, and occupancy-grid-validated landmark promotion rendered as a `MarkerArray` on the SLAM map.
+- **Built the semantic memory and semantic-landmark behaviour** — label-aware nearest-neighbour association, EMA position smoothing, deterministic per-class IDs such as `person_0`, `person_1`, …, stale/remove aging, and occupancy-grid-validated landmark promotion rendered as a `MarkerArray` on the SLAM map.
 - **Implemented deterministic, natural-language-style terminal commands without an LLM**: filler-word stripping, multi-word phrase aliases (e.g. `bench → table`), several index forms (`person 3`, `person_3`, `person3`, `person number 3`), and nearest-vs-indexed selection policies over semantic memory.
 - **Connected semantic target selection to Nav2** through a goal adapter that computes a safe standoff approach pose and a coordinator state machine (`EXPLORING → SEMANTIC_QUERYING → SEMANTIC_NAV → TARGET_REACHED/FAILED`) that drives `NavigateToPose` with cancellation, timeouts, and auto-resume of frontier exploration.
 - **Designed the Gazebo test worlds** (4×6 single-bench/person and 6×6 five-person scenarios) and **recorded the demo videos and GIF previews** used in this README.
