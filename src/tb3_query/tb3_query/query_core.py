@@ -59,9 +59,16 @@ class ParsedCommand:
     "go to person3"       -> ParsedCommand("person", desired_index=3)
     "go to person no. 5"  -> ParsedCommand("person", desired_index=5)
     "find the table"      -> ParsedCommand("table",  desired_index=None)
+
+    Descriptive words beyond the target noun are kept as the referring
+    expression for grounding:
+
+    "go to the sofa with warm color"
+        -> ParsedCommand("sofa", attribute_expression="sofa with warm color")
     """
     semantic_name: str
     desired_index: Optional[int] = None
+    attribute_expression: Optional[str] = None
 
 
 # ── Mapping loader ────────────────────────────────────────────────────────
@@ -104,9 +111,14 @@ _FILLER = frozenset({
 # "person number 3", "person no 5"). Skipped while scanning for the index.
 _INDEX_FILLER = frozenset({"number", "no", "num"})
 
+# Fillers safe to strip from a referring expression: _FILLER minus
+# "with", which "sofa with warm color" needs to keep.
+_COMMAND_FILLER = frozenset(_FILLER - {"with"})
+
 _PHRASE_ALIASES: dict[str, str] = {
     "bench": "table",
     "stop sign": "stop_sign",
+    "couch": "sofa",
 }
 
 
@@ -152,6 +164,26 @@ def _scan_index(tokens: list[str]) -> Optional[int]:
     return None
 
 
+def _extract_expression(
+    tokens: list[str],
+    target_words: set[str],
+) -> Optional[str]:
+    """Reconstruct the referring expression for grounding, or None if the
+    command has no descriptive words beyond the target noun. A bare
+    "with" ("help me with the table") does not count as an attribute.
+    """
+    expr_tokens = [
+        t for t in tokens
+        if t not in _COMMAND_FILLER
+        and t not in _INDEX_FILLER
+        and not t.isdigit()
+    ]
+    attrs = [t for t in expr_tokens if t not in target_words and t != "with"]
+    if not attrs:
+        return None
+    return " ".join(expr_tokens)
+
+
 def parse_command(
     text: str,
     known_targets: set[str],
@@ -163,7 +195,9 @@ def parse_command(
       * multi-word phrases via `_PHRASE_ALIASES` ("stop sign", "bench"),
       * trailing integer index ("person 3" / "person_3" / "person3" /
         "person number 3" / "person no 5"),
-      * filler words listed in `_FILLER` and `_INDEX_FILLER`.
+      * filler words listed in `_FILLER` and `_INDEX_FILLER`,
+      * attribute expressions ("go to the sofa with warm color"),
+        preserved in `attribute_expression` for grounding.
     """
     norm = _normalize(text)
     if not norm:
@@ -186,7 +220,12 @@ def parse_command(
             after = tokens[tokens.index(phrase.split()[-1]) + 1:]
         except ValueError:
             after = []
-        return ParsedCommand(semantic_name=canonical, desired_index=_scan_index(after))
+        return ParsedCommand(
+            semantic_name=canonical,
+            desired_index=_scan_index(after),
+            attribute_expression=_extract_expression(
+                tokens, set(phrase.split()) | {canonical}),
+        )
 
     # 2. Direct token-level match against `known_targets`.
     tokens = norm.split()
@@ -197,6 +236,7 @@ def parse_command(
             return ParsedCommand(
                 semantic_name=tok,
                 desired_index=_scan_index(tokens[i + 1:]),
+                attribute_expression=_extract_expression(tokens, {tok}),
             )
 
     return None

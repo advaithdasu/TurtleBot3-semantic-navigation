@@ -1,0 +1,27 @@
+# evidence_store_node: keeps the best-view camera frame per persistent
+# semantic landmark so semantic_query_node can run grounding over them.
+
+evidence_store_node:
+  ros__parameters:
+    image_topic:      "/camera/image_raw"
+    detections_topic: "/detector_node/detections"
+    localized_topic:  "/localizer_node/localized_objects"
+    landmarks_topic:  "/semantic_map_memory_node/landmark_objects"
+
+    # Shared with semantic_query_node's evidence_dir param.
+    evidence_dir: "~/.tb3_semantic_nav/evidence"
+    jpeg_quality: 85
+
+    # camera_hfov_deg must match tb3_localizer/config/localizer.yaml;
+    # match_distance must match semantic_map_memory merge_distance.
+    camera_hfov_deg: 62.2
+    bearing_tolerance_rad: 0.06
+    match_distance: 0.8
+    target_frame: "map"
+    tf_timeout: 0.3
+
+    frame_buffer_size: 40
+    pending_ttl_sec: 60.0
+    pending_max: 200
+    min_confidence: 0.12
+    process_min_interval_sec: 0.15

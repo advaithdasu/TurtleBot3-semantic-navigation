@@ -21,6 +21,9 @@
   <depend>vision_msgs</depend>
 
   <exec_depend>rosidl_default_runtime</exec_depend>
+  <!-- Stage-5 attribute grounding (optional at runtime: the node
+       degrades gracefully if the package is absent). -->
+  <exec_depend>tb3_grounding</exec_depend>
 
   <member_of_group>rosidl_interface_packages</member_of_group>
 

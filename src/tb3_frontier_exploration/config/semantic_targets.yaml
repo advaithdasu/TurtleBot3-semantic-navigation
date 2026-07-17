@@ -53,3 +53,15 @@ semantic_targets:
     notes: >
       Direct label match. Highest detection confidence of the three targets.
       Optimise scene layout to place person centred in camera FOV first.
+
+  - semantic_name:   "sofa"
+    detector_label:  "couch"
+    gazebo_model:    "sofa"
+    enabled:         true
+    notes: >
+      Added for Stage-5 attribute grounding ("go to the sofa with warm
+      color"). YOLOv8 COCO class 57 is "couch"; the parser also accepts
+      the word "couch" via _PHRASE_ALIASES. Detection requires a real
+      sofa/couch mesh in the Gazebo world — YOLO will not classify
+      primitive box geometry as a couch, so use a textured model
+      (e.g. from the Gazebo model database or an SDF with a mesh).
