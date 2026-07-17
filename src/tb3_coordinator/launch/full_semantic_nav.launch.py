@@ -163,6 +163,10 @@ def generate_launch_description():
             ),
             launch_arguments={"world": world_file}.items(),
         )
+        use_gzclient = (
+            LaunchConfiguration("use_gzclient").perform(context).strip().lower()
+            not in ("false", "0", "no")
+        )
         gzclient = IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
                 os.path.join(pkg_gazebo_ros, "launch", "gzclient.launch.py")
@@ -181,13 +185,16 @@ def generate_launch_description():
             launch_arguments={"x_pose": x_final, "y_pose": y_final}.items(),
         )
 
-        return [
+        actions = [
             LogInfo(msg=(
                 f"[full_semantic_nav] world={raw!r} → {world_file} ;"
                 f" spawn=({x_final}, {y_final})"
             )),
-            gzserver, gzclient, rsp, spawn,
+            gzserver, rsp, spawn,
         ]
+        if use_gzclient:
+            actions.insert(2, gzclient)
+        return actions
 
     # ── 2. Nav2 + SLAM (integrated) ─────────────────────────────────────
     # Use Nav2 bringup with slam=True so it launches slam_toolbox internally
@@ -310,6 +317,9 @@ def generate_launch_description():
         DeclareLaunchArgument("use_sim_time", default_value="true"),
         DeclareLaunchArgument("use_rviz", default_value="true",
                               description="Launch RViz with semantic nav config"),
+        DeclareLaunchArgument("use_gzclient", default_value="true",
+                              description="Launch the Gazebo GUI client "
+                                          "(false for headless runs)"),
 
         # Spawn pose defaults to "AUTO" — at launch time the OpaqueFunction
         # below substitutes in the per-world default registered in
