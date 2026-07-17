@@ -264,9 +264,64 @@ ros2 topic pub --once /user_command std_msgs/String "data: 'I need you to approa
 ros2 topic pub --once /user_command std_msgs/String "data: 'find a person for me'"
 ```
 
+### Spatial-reasoning queries (LocateAnything) — Stage 5
+
+Plain commands resolve by class and index only. Commands that carry
+**descriptive attributes** are resolved by a vision-language grounding
+model — [NVIDIA LocateAnything-3B](https://research.nvidia.com/labs/lpr/locate-anything/)
+— so the robot can distinguish *which* instance of a class you mean:
+
+```bash
+ros2 topic pub --once /user_command std_msgs/String "data: 'go to the sofa with warm color'"
+```
+
+```bash
+ros2 topic pub --once /user_command std_msgs/String "data: 'navigate to the red sofa'"
+```
+
+How it works (design rationale in [`src/tb3_grounding/README.md`](src/tb3_grounding/README.md)):
+
+1. **Evidence collection** — while YOLOv8n builds the semantic map as
+   before, the new `tb3_grounding/evidence_store_node` retains, for every
+   persistent landmark, the single **best-view camera frame** (largest,
+   most confident, untruncated detection) plus its bounding box, on disk
+   under `~/.tb3_semantic_nav/evidence/`.
+2. **Query-time grounding** — when `parse_command` finds attribute words
+   beyond the target noun ("sofa **with warm color**"), the query node
+   sends each same-class candidate's best-view frame plus the expression
+   to a grounding HTTP server. LocateAnything answers "where in this
+   image is 'the sofa with warm color'?" with boxes; a candidate scores
+   by **IoU between the model's box and its own stored bbox**. The
+   highest-scoring landmark becomes the Nav2 goal.
+3. **Graceful degradation** — no server, no evidence, or an explicit
+   index (`person 2 …`) → the deterministic Stage-4 path runs instead.
+   If the model inspects every candidate and none matches the
+   expression, the query **fails** rather than guessing.
+
+Run the grounding server (LocateAnything needs an NVIDIA Ampere+ GPU and
+Linux; it must NOT run per-frame — it is only called at query time):
+
+```bash
+# On a GPU machine (weights auto-download from HuggingFace, ~7 GB):
+cd grounding && python3 server.py --backend locate_anything --port 8801
+
+# GPU-free demo/testing (HSV color heuristic — handles "warm color",
+# "cool color", and named colors end-to-end without the model):
+cd grounding && python3 server.py --backend mock --port 8801
+```
+
+Point `grounding_server_url` in
+[`src/tb3_query/config/semantic_query.yaml`](src/tb3_query/config/semantic_query.yaml)
+at the server. Note the LocateAnything-3B weights are licensed for
+**non-commercial research use only**.
+
+> Detecting a sofa requires an actual couch mesh in the Gazebo world
+> (YOLO will not classify primitive boxes as `couch`); the mechanism is
+> class-agnostic and applies to any `semantic_targets.yaml` entry.
+
 ## Packages
 
-`tb3_detector` · `tb3_localizer` · `tb3_memory` · `tb3_coordinator` (+ `semantic_map_memory_node`) · `tb3_query` · `tb3_nav_adapter` · `tb3_frontier_exploration`.
+`tb3_detector` · `tb3_localizer` · `tb3_memory` · `tb3_coordinator` (+ `semantic_map_memory_node`) · `tb3_query` · `tb3_nav_adapter` · `tb3_frontier_exploration` · `tb3_grounding` (+ the non-ROS [`grounding/`](grounding/) model server).
 
 Persistent semantic landmarks rendered on the SLAM map come from
 [`tb3_coordinator/semantic_map_memory_node`](src/tb3_coordinator/tb3_coordinator/semantic_map_memory_node.py),

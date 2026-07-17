@@ -27,7 +27,8 @@ detector_node:
     #   table     →  "bench"
     #   stop_sign →  "stop sign"
     #   person    →  "person"
-    class_filter: ["bench", "person"]  # "stop sign" temporarily removed — restore for full 3-target testing
+    #   sofa      →  "couch"
+    class_filter: ["bench", "person", "couch"]  # "stop sign" temporarily removed — restore for full 3-target testing
 
     # ── Topics ─────────────────────────────────────────────
     image_topic:        "/camera/image_raw"

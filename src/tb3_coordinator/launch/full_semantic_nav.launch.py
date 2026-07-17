@@ -96,6 +96,7 @@ def generate_launch_description():
     pkg_loc = get_package_share_directory("tb3_localizer")
     pkg_mem = get_package_share_directory("tb3_memory")
     pkg_qry = get_package_share_directory("tb3_query")
+    pkg_grd = get_package_share_directory("tb3_grounding")
     pkg_nav = get_package_share_directory("tb3_nav_adapter")
     pkg_coord = get_package_share_directory("tb3_coordinator")
     pkg_nav2 = get_package_share_directory("nav2_bringup")
@@ -271,6 +272,15 @@ def generate_launch_description():
         launch_arguments={"use_sim_time": use_sim_time}.items(),
     )
 
+    # Best-view evidence store for grounding; started after the map
+    # memory node it consumes landmarks from.
+    evidence_store = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(pkg_grd, "launch", "evidence_store.launch.py")
+        ),
+        launch_arguments={"use_sim_time": use_sim_time}.items(),
+    )
+
     # ── 6. Coordinator ────────────────────────────────────────────────────
     coordinator = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -349,6 +359,7 @@ def generate_launch_description():
         TimerAction(period=15.0, actions=[memory]),
         TimerAction(period=15.0, actions=[query]),
         TimerAction(period=15.0, actions=[nav_adapter]),
+        TimerAction(period=18.0, actions=[evidence_store]),
 
         # Phase 3: coordinator (after everything else is up)
         TimerAction(period=23.0, actions=[coordinator]),

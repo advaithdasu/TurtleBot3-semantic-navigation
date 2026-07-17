@@ -22,3 +22,17 @@ semantic_query_node:
 
     # ── Output ────────────────────────────────────────────
     output_frame: "map"  # persistent landmarks are in map frame
+
+    # ── Grounding ─────────────────────────────────────────
+    # Attribute queries ("go to the sofa with warm color") are resolved
+    # against grounding/server.py using the best-view frames stored by
+    # evidence_store_node. If the server or evidence is unavailable they
+    # degrade to plain nearest-first selection.
+    grounding_enabled: true
+    grounding_server_url: "http://127.0.0.1:8801"
+    grounding_timeout_sec: 20.0
+    # Must match evidence_dir in tb3_grounding/config/grounding.yaml.
+    evidence_dir: "~/.tb3_semantic_nav/evidence"
+    # Floor on IoU x box-score for accepting a grounded match; below it
+    # the query fails rather than guessing.
+    min_grounding_score: 0.05
