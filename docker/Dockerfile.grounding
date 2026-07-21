@@ -1,0 +1,8 @@
+# Mock grounding server. The real LocateAnything backend needs an NVIDIA
+# GPU; see grounding/README.md.
+FROM python:3.11-slim
+
+RUN pip install --no-cache-dir opencv-python-headless numpy
+
+WORKDIR /app
+CMD ["python3", "server.py", "--backend", "mock", "--port", "8801"]

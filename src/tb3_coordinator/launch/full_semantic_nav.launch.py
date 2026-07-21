@@ -163,6 +163,10 @@ def generate_launch_description():
             ),
             launch_arguments={"world": world_file}.items(),
         )
+        use_gzclient = (
+            LaunchConfiguration("use_gzclient").perform(context).strip().lower()
+            not in ("false", "0", "no")
+        )
         gzclient = IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
                 os.path.join(pkg_gazebo_ros, "launch", "gzclient.launch.py")
@@ -174,19 +178,27 @@ def generate_launch_description():
             ),
             launch_arguments={"use_sim_time": use_sim_time}.items(),
         )
-        spawn = IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(
-                os.path.join(launch_tb3, "spawn_turtlebot3.launch.py")
-            ),
-            launch_arguments={"x_pose": x_final, "y_pose": y_final}.items(),
-        )
+        def make_spawn():
+            return IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    os.path.join(launch_tb3, "spawn_turtlebot3.launch.py")
+                ),
+                launch_arguments={"x_pose": x_final, "y_pose": y_final}.items(),
+            )
+
+        spawn = make_spawn()
+        # spawn_entity gives up after 30s; slow cold starts under emulation
+        # can exceed that. A duplicate spawn is harmless.
+        spawn_retry = TimerAction(period=60.0, actions=[make_spawn()])
 
         return [
             LogInfo(msg=(
                 f"[full_semantic_nav] world={raw!r} → {world_file} ;"
                 f" spawn=({x_final}, {y_final})"
             )),
-            gzserver, gzclient, rsp, spawn,
+            gzserver,
+            *([gzclient] if use_gzclient else []),
+            rsp, spawn, spawn_retry,
         ]
 
     # ── 2. Nav2 + SLAM (integrated) ─────────────────────────────────────
@@ -310,6 +322,9 @@ def generate_launch_description():
         DeclareLaunchArgument("use_sim_time", default_value="true"),
         DeclareLaunchArgument("use_rviz", default_value="true",
                               description="Launch RViz with semantic nav config"),
+        DeclareLaunchArgument("use_gzclient", default_value="true",
+                              description="Launch the Gazebo GUI client "
+                                          "(false for headless runs)"),
 
         # Spawn pose defaults to "AUTO" — at launch time the OpaqueFunction
         # below substitutes in the per-world default registered in

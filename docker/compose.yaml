@@ -1,0 +1,38 @@
+services:
+  sim:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: tb3-semantic-nav-sim
+    # Gazebo Classic packages are amd64-only.
+    platform: linux/amd64
+    ports:
+      - "6080:80"    # noVNC desktop
+      - "8801:8801"  # grounding server
+    volumes:
+      - ..:/home/ubuntu/ws
+      # Colcon artifacts stay off the bind mount.
+      - ws_build:/home/ubuntu/ws/build
+      - ws_install:/home/ubuntu/ws/install
+      - ws_log:/home/ubuntu/ws/log
+    shm_size: "1gb"
+    environment:
+      - RESOLUTION=1600x900
+      # gzserver needs an X display for camera rendering.
+      - DISPLAY=:1
+
+  grounding:
+    build:
+      context: .
+      dockerfile: Dockerfile.grounding
+    # Shares sim's netns so the query node's default 127.0.0.1:8801 works.
+    network_mode: "service:sim"
+    volumes:
+      - ../grounding:/app
+    depends_on:
+      - sim
+
+volumes:
+  ws_build:
+  ws_install:
+  ws_log:

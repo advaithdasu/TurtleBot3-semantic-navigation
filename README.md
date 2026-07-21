@@ -145,6 +145,45 @@ The simulated TurtleBot3 streams a forward RGB image and a 360° LiDAR scan into
 >   https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8n.pt
 > ```
 
+### Running on Apple Silicon (Docker)
+
+Gazebo Classic has no native macOS build, and no arm64 Linux binaries
+either (Ubuntu jammy doesn't package it; the ROS repo builds
+`gazebo-ros-pkgs` and `turtlebot3-gazebo` for amd64 only). The compose
+setup therefore pins the sim container to `linux/amd64`, which Docker
+Desktop runs under Rosetta 2 on M-series Macs. Enable it first:
+Docker Desktop → Settings → General → "Use Rosetta for x86_64/amd64
+emulation on Apple Silicon" (without it, containers fall back to QEMU,
+which is much slower and was unstable with gzserver in testing). The
+desktop (Gazebo GUI, RViz) is served to your browser through noVNC.
+gzserver needs an X display for camera rendering even without the GUI
+client; the compose file sets `DISPLAY=:1` (the VNC display) so both
+desktop terminals and `docker exec` shells work.
+
+```bash
+docker compose -f docker/compose.yaml up -d --build
+```
+
+Then open http://localhost:6080, launch a terminal inside the desktop,
+and:
+
+```bash
+cd ~/ws
+./docker/setup_ws.sh          # downloads YOLO weights, runs ./build.sh
+source install/setup.bash
+ros2 launch tb3_coordinator full_semantic_nav.launch.py
+```
+
+The compose file also starts the mock grounding server on
+`127.0.0.1:8801` (it shares the sim container's network), so attribute
+commands like `go to the sofa with warm color` work out of the box.
+Pass `use_gzclient:=false use_rviz:=false` for headless runs.
+
+Rendering is software-only (llvmpipe) and the sim runs translated, so
+expect a reduced real-time factor with the full stack up. Note that an
+arm64 Ubuntu VM (UTM/Parallels) does not help here — the missing arm64
+Gazebo packages are the bottleneck, not the container.
+
 ### One-click start
 
 ```bash
