@@ -184,13 +184,25 @@ def generate_launch_description():
             ),
             launch_arguments={"x_pose": x_final, "y_pose": y_final}.items(),
         )
+        # spawn_entity gives up after 30s; on slow cold starts (first boot
+        # under emulation) gzserver can take longer than that to serve
+        # /spawn_entity. Retry once — a duplicate spawn only logs
+        # "entity already exists" and is otherwise harmless.
+        spawn_retry = TimerAction(period=60.0, actions=[
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    os.path.join(launch_tb3, "spawn_turtlebot3.launch.py")
+                ),
+                launch_arguments={"x_pose": x_final, "y_pose": y_final}.items(),
+            ),
+        ])
 
         actions = [
             LogInfo(msg=(
                 f"[full_semantic_nav] world={raw!r} → {world_file} ;"
                 f" spawn=({x_final}, {y_final})"
             )),
-            gzserver, rsp, spawn,
+            gzserver, rsp, spawn, spawn_retry,
         ]
         if use_gzclient:
             actions.insert(2, gzclient)
