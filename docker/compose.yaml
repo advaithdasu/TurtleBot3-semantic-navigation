@@ -4,29 +4,28 @@ services:
       context: .
       dockerfile: Dockerfile
     image: tb3-semantic-nav-sim
-    # Gazebo Classic packages are amd64-only; Apple Silicon runs this
-    # under Rosetta 2.
+    # Gazebo Classic packages are amd64-only.
     platform: linux/amd64
     ports:
-      - "6080:80"    # noVNC desktop -> http://localhost:6080
-      - "8801:8801"  # grounding server (shares this network namespace)
+      - "6080:80"    # noVNC desktop
+      - "8801:8801"  # grounding server
     volumes:
       - ..:/home/ubuntu/ws
-      # Keep colcon artifacts off the macOS bind mount: faster, and host
-      # and container builds never mix.
+      # Colcon artifacts stay off the bind mount.
       - ws_build:/home/ubuntu/ws/build
       - ws_install:/home/ubuntu/ws/install
       - ws_log:/home/ubuntu/ws/log
     shm_size: "1gb"
     environment:
       - RESOLUTION=1600x900
+      # gzserver needs an X display for camera rendering.
+      - DISPLAY=:1
 
   grounding:
     build:
       context: .
       dockerfile: Dockerfile.grounding
-    # Shares sim's network namespace so the query node's default
-    # grounding_server_url (127.0.0.1:8801) works unchanged.
+    # Shares sim's netns so the query node's default 127.0.0.1:8801 works.
     network_mode: "service:sim"
     volumes:
       - ../grounding:/app

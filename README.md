@@ -156,9 +156,9 @@ Docker Desktop → Settings → General → "Use Rosetta for x86_64/amd64
 emulation on Apple Silicon" (without it, containers fall back to QEMU,
 which is much slower and was unstable with gzserver in testing). The
 desktop (Gazebo GUI, RViz) is served to your browser through noVNC.
-Launch from a terminal inside that desktop — gzserver needs an X display
-for camera rendering even without the GUI client. In a `docker exec`
-shell, `export DISPLAY=:1` first.
+gzserver needs an X display for camera rendering even without the GUI
+client; the compose file sets `DISPLAY=:1` (the VNC display) so both
+desktop terminals and `docker exec` shells work.
 
 ```bash
 docker compose -f docker/compose.yaml up -d --build

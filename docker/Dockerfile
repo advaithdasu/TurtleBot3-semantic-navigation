@@ -1,10 +1,5 @@
-# Dev/sim image for the full semantic navigation stack. amd64 only:
-# Gazebo Classic has no arm64 binaries (Ubuntu jammy doesn't package it
-# and the ROS repo builds gazebo-ros-pkgs/turtlebot3-gazebo for amd64
-# only), so on Apple Silicon this runs under Rosetta 2 — pinned via
-# `platform: linux/amd64` in compose.yaml. The base image provides an
-# Ubuntu 22.04 + ROS Humble desktop reachable in a browser via noVNC
-# (port 80 in-container).
+# Gazebo Classic has no arm64 binaries, so this image is amd64-only;
+# compose pins the platform and Apple Silicon runs it under Rosetta 2.
 FROM tiryoh/ros2-desktop-vnc:humble
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -23,13 +18,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# CPU torch first, or ultralytics pulls the CUDA build. Pins applied
-# last: numpy 2 breaks the apt cv_bridge (compiled against 1.x), and
-# newer setuptools breaks colcon --symlink-install on Humble.
+# numpy<2: apt cv_bridge is built against 1.x.
+# setuptools 58.2.0: newer breaks colcon --symlink-install on Humble.
 RUN pip3 install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu \
     && pip3 install --no-cache-dir ultralytics \
     && pip3 install --no-cache-dir 'numpy<2' 'setuptools==58.2.0'
 
-# Software GL: no GPU passthrough under Docker Desktop on macOS.
 ENV TURTLEBOT3_MODEL=waffle_pi \
     LIBGL_ALWAYS_SOFTWARE=1

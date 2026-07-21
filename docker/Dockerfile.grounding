@@ -1,6 +1,5 @@
-# Mock grounding server (color heuristic, CPU). The real LocateAnything
-# backend needs an NVIDIA GPU and runs outside this compose setup; see
-# grounding/README.md.
+# Mock grounding server. The real LocateAnything backend needs an NVIDIA
+# GPU; see grounding/README.md.
 FROM python:3.11-slim
 
 RUN pip install --no-cache-dir opencv-python-headless numpy
