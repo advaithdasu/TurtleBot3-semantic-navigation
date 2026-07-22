@@ -203,7 +203,7 @@ ros2 launch tb3_coordinator full_semantic_nav.launch.py use_runtime_debug:=true
 
 ### Choose a Gazebo world
 
-The launch ships with **2 built-in worlds** under
+The launch ships with **3 built-in worlds** under
 `src/tb3_frontier_exploration/worlds/`. Pick one with `world:=<alias>` —
 the matching default spawn pose is applied automatically:
 
@@ -211,6 +211,7 @@ the matching default spawn pose is applied automatically:
 | -------------------------- | ----------------------------------- | --------- | ----------------------------------------------------------------------------------------------------- | ---------------- |
 | `warehouse_models_person`  | `warehouse_models_person.world`     | 6 × 6 m   | **Default.** 5 `person` figures at the four corners + centre. Tuned for the "go to person N" workflow. | `(-1.5,  0.0)`   |
 | `warehouse_models`         | `warehouse_semantic_models.world`   | 4 × 6 m   | One `table` (semantic alias `bench`) + one `person`. The original single-target test world.            | `(-1.2, -1.2)`   |
+| `warehouse_aws`            | `warehouse_aws_semantic.world`      | 8 × 6 m   | AWS RoboMaker warehouse props (shelf, box clutter, pallet jack) + blue/red chairs, orange sofa with a blue box on top, colored floor boxes, one `person`. Built for the LocateAnything grounding eval (`grounding/eval/`). | `(-3.0,  0.0)`   |
 
 ```bash
 # Default — five-person room, spawn pose set automatically to (-1.5, 0)
@@ -234,8 +235,8 @@ Bad aliases / missing files are caught at launch time:
 ```text
 FileNotFoundError: [full_semantic_nav] world='foo' could not be resolved.
 Tried as alias: .../worlds/foo.
-Pass one of the built-in aliases (warehouse_models, warehouse_models_person)
-or an absolute path to a .world file.
+Pass one of the built-in aliases (warehouse_aws, warehouse_models,
+warehouse_models_person) or an absolute path to a .world file.
 ```
 
 > **Why a 6 × 6 room for `warehouse_models_person`?** TurtleBot3's LDS-01

@@ -29,5 +29,7 @@
 
   <export>
     <build_type>ament_cmake</build_type>
+    <!-- Resolve model:// URIs for the models/ directory. -->
+    <gazebo_ros gazebo_model_path="${prefix}/models"/>
   </export>
 </package>

@@ -1,0 +1,252 @@
+<?xml version="1.0" ?>
+<!--
+  warehouse_aws_semantic.world — 8 m × 6 m warehouse room furnished with
+  vendored AWS RoboMaker models plus color-variant props, built for
+  query-time grounding evaluation ("the blue box on the orange sofa").
+
+  Inner clearance X ∈ [-4, 4], Y ∈ [-3, 3]; walls 0.2 m thick, 2.5 m
+  high, centres at x = ±4.1 / y = ±3.1. Slightly larger than the 6×6 m
+  of warehouse_models_person.world (LDS-01 range 3.5 m): safe because
+  the furniture breaks scan-matching ambiguity from any reachable pose.
+
+  Models resolve from this package's models/ directory via the
+  GAZEBO_MODEL_PATH env hook (see models/README.md); person_standing is
+  from the standard Gazebo model database. All props are static so the
+  box posed on the sofa seat (z = 0.44) stays put.
+
+  Object manifest (GROUND TRUTH for grounding/eval — keep accurate):
+
+    name              model                                   x      y      z     yaw
+    ────────────────  ──────────────────────────────────────  ─────  ─────  ────  ───────
+    shelf_north       aws_robomaker_warehouse_ShelfD_01        0.0    2.56  0     0
+    clutter_ne        aws_robomaker_warehouse_ClutteringC_01   3.0    1.9   0     0
+    pallet_jack_east  aws_robomaker_warehouse_PalletJackB_01   3.6   -0.5   0     1.5708
+    bucket_nw         aws_robomaker_warehouse_Bucket_01       -3.5    2.35  0     0
+    trash_can_se      aws_robomaker_warehouse_TrashCanC_01     3.2   -2.5   0     0
+    chair_blue        chair_blue                              -1.2    0.6   0    -0.8
+    chair_red         chair_red                                1.2   -0.8   0     2.4
+    sofa_orange       sofa_orange                              0.5   -2.6   0     1.5708
+    box_blue_sofa     box_blue                                 0.5   -2.49  0.44  0
+    box_blue_floor    box_blue                                -1.2   -2.3   0     0
+    box_red           box_red                                  1.6   -2.5   0     0.4
+    box_yellow        box_yellow                              -1.5    1.7   0     0.3
+    person_sw         person_standing                         -3.0   -2.2   0     0.63
+
+  box_blue_floor is the deliberate distractor for "the blue box on the
+  sofa" (on the floor, 1.73 m from the sofa, in the same camera frame
+  from the sofa_zone viewpoint); box_yellow shares the shelf_aisle frame
+  with the shelf. Eval viewpoints: grounding/eval/viewpoints.example.json.
+
+  Spawn (set by the world:=warehouse_aws alias): (-3.0, 0.0) facing +X —
+  nearest furniture 1.9 m, west wall 1.0 m, clear of Nav2's default
+  0.55 m inflation radius.
+-->
+<sdf version="1.6">
+  <world name="warehouse_aws_semantic">
+
+    <!-- Standard lighting -->
+    <include>
+      <uri>model://sun</uri>
+    </include>
+
+    <!-- Infinite ground plane -->
+    <include>
+      <uri>model://ground_plane</uri>
+    </include>
+
+    <!-- Physics: stable real-time factor -->
+    <physics type="ode">
+      <real_time_factor>1.0</real_time_factor>
+      <max_step_size>0.001</max_step_size>
+    </physics>
+
+    <!-- Scene ambient -->
+    <scene>
+      <ambient>0.4 0.4 0.4 1</ambient>
+      <background>0.7 0.75 0.8 1</background>
+    </scene>
+
+    <!-- ================================================================
+         WALLS — enclosed 8 m × 6 m room.
+         Inner clearance: X in [-4, 4], Y in [-3, 3].
+         Thickness 0.2 m, height 2.5 m.
+         ================================================================ -->
+
+    <model name="wall_east">
+      <static>true</static>
+      <pose>4.1 0 1.25 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.2 6.4 2.5</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.2 6.4 2.5</size></box></geometry>
+          <material>
+            <ambient>0.55 0.55 0.58 1</ambient>
+            <diffuse>0.65 0.65 0.7 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="wall_west">
+      <static>true</static>
+      <pose>-4.1 0 1.25 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.2 6.4 2.5</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.2 6.4 2.5</size></box></geometry>
+          <material>
+            <ambient>0.55 0.55 0.58 1</ambient>
+            <diffuse>0.65 0.65 0.7 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="wall_north">
+      <static>true</static>
+      <pose>0 3.1 1.25 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>8.4 0.2 2.5</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>8.4 0.2 2.5</size></box></geometry>
+          <material>
+            <ambient>0.5 0.52 0.55 1</ambient>
+            <diffuse>0.6 0.62 0.65 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="wall_south">
+      <static>true</static>
+      <pose>0 -3.1 1.25 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>8.4 0.2 2.5</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>8.4 0.2 2.5</size></box></geometry>
+          <material>
+            <ambient>0.5 0.52 0.55 1</ambient>
+            <diffuse>0.6 0.62 0.65 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ================================================================
+         WAREHOUSE FURNITURE — vendored AWS RoboMaker models (all static).
+         ================================================================ -->
+
+    <!-- Shelf centred on the north wall. ShelfD footprint 3.92 (X) ×
+         0.88 (Y); back face flush with the wall (y = 3.0), south face
+         at y = 2.12. -->
+    <include>
+      <uri>model://aws_robomaker_warehouse_ShelfD_01</uri>
+      <name>shelf_north</name>
+      <pose>0.0 2.56 0 0 0 0</pose>
+    </include>
+
+    <!-- Box-clutter pile in the NE corner (footprint 1.77 × 2.06). -->
+    <include>
+      <uri>model://aws_robomaker_warehouse_ClutteringC_01</uri>
+      <name>clutter_ne</name>
+      <pose>3.0 1.9 0 0 0 0</pose>
+    </include>
+
+    <!-- Pallet jack along the east wall, rotated 90° so its long axis
+         runs north–south (footprint 0.54 × 1.16 after rotation). -->
+    <include>
+      <uri>model://aws_robomaker_warehouse_PalletJackB_01</uri>
+      <name>pallet_jack_east</name>
+      <pose>3.6 -0.5 0 0 0 1.5708</pose>
+    </include>
+
+    <!-- Bucket stack in the NW corner (footprint 0.94 × 1.22). -->
+    <include>
+      <uri>model://aws_robomaker_warehouse_Bucket_01</uri>
+      <name>bucket_nw</name>
+      <pose>-3.5 2.35 0 0 0 0</pose>
+    </include>
+
+    <!-- Trash can in the SE corner (footprint 1.48 × 0.91). -->
+    <include>
+      <uri>model://aws_robomaker_warehouse_TrashCanC_01</uri>
+      <name>trash_can_se</name>
+      <pose>3.2 -2.5 0 0 0 0</pose>
+    </include>
+
+    <!-- ================================================================
+         COLOR-VARIANT SEMANTIC PROPS — authored in models/ (flat
+         saturated SDF materials for HSV-based grounding).
+         ================================================================ -->
+
+    <!-- Blue chair, open floor, west-centre. -->
+    <include>
+      <uri>model://chair_blue</uri>
+      <name>chair_blue</name>
+      <pose>-1.2 0.6 0 0 0 -0.8</pose>
+    </include>
+
+    <!-- Red chair, open floor, 2.78 m from chair_blue, different yaw. -->
+    <include>
+      <uri>model://chair_red</uri>
+      <name>chair_red</name>
+      <pose>1.2 -0.8 0 0 0 2.4</pose>
+    </include>
+
+    <!-- Orange sofa against the south wall, facing the room interior
+         (+Y after the 90° yaw). Seat surface at z = 0.44. -->
+    <include>
+      <uri>model://sofa_orange</uri>
+      <name>sofa_orange</name>
+      <pose>0.5 -2.6 0 0 0 1.5708</pose>
+    </include>
+
+    <!-- Blue box ON the sofa seat: z = 0.44 (seat height), y shifted
+         +0.065 m to sit centred on the seat cushion (the sofa's local
+         forward axis maps to world +Y). Both models static. -->
+    <include>
+      <uri>model://box_blue</uri>
+      <name>box_blue_sofa</name>
+      <pose>0.5 -2.49 0.44 0 0 0</pose>
+    </include>
+
+    <!-- DISTRACTOR blue box on the open floor, 1.73 m from the sofa
+         centre — shares the sofa_zone eval camera frame with the sofa. -->
+    <include>
+      <uri>model://box_blue</uri>
+      <name>box_blue_floor</name>
+      <pose>-1.2 -2.3 0 0 0 0</pose>
+    </include>
+
+    <!-- Red box on the floor near the sofa (0.48 m east of it). -->
+    <include>
+      <uri>model://box_red</uri>
+      <name>box_red</name>
+      <pose>1.6 -2.5 0 0 0 0.4</pose>
+    </include>
+
+    <!-- Yellow box on the floor in front of the shelf — shares the
+         shelf_aisle eval camera frame with the shelf. -->
+    <include>
+      <uri>model://box_yellow</uri>
+      <name>box_yellow</name>
+      <pose>-1.5 1.7 0 0 0 0.3</pose>
+    </include>
+
+    <!-- Person in the SW region, yawed toward the room centre. -->
+    <include>
+      <uri>model://person_standing</uri>
+      <name>person_sw</name>
+      <pose>-3.0 -2.2 0 0 0 0.63</pose>
+    </include>
+
+  </world>
+</sdf>

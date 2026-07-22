@@ -92,6 +92,9 @@ semantic_map_memory_node:
     person_max_range_m:        2.5
     bench_max_range_m:         2.0
     stop_sign_max_range_m:     1.8
+    chair_max_range_m:         2.5
+    couch_max_range_m:         2.5
+    suitcase_max_range_m:      2.0
     # Promotion threshold for `person` candidates. Bumped 3 → 8 to
     # filter out ghost landmarks created by transient mis-projections
     # near a real person (typical symptom: a `person_N` with n=4 or
@@ -102,6 +105,11 @@ semantic_map_memory_node:
     person_min_observations:   8
     bench_min_observations:    4
     stop_sign_min_observations: 5
+    # Warehouse classes (warehouse_aws_semantic.world); the geometry-
+    # consistency gate only fires for person/bench, so these bypass it.
+    chair_min_observations:    3
+    couch_min_observations:    3
+    suitcase_min_observations: 3
     wall_boundary_margin_m:   0.20
 
     # ── Visualization ──────────────────────────────────────

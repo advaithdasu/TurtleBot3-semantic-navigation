@@ -63,6 +63,9 @@ CLASS_COLORS = {
     "person":    ColorRGBA(r=0.2, g=0.8, b=0.2, a=0.9),
     "bench":     ColorRGBA(r=0.8, g=0.6, b=0.2, a=0.9),
     "stop sign": ColorRGBA(r=0.9, g=0.1, b=0.1, a=0.9),
+    "chair":     ColorRGBA(r=0.2, g=0.4, b=0.9, a=0.9),
+    "couch":     ColorRGBA(r=0.9, g=0.5, b=0.1, a=0.9),
+    "suitcase":  ColorRGBA(r=0.9, g=0.8, b=0.2, a=0.9),
 }
 DEFAULT_COLOR = ColorRGBA(r=0.6, g=0.6, b=0.6, a=0.9)
 
@@ -345,9 +348,15 @@ class SemanticMapMemoryNode(Node):
         self.declare_parameter("person_max_range_m", 2.5)
         self.declare_parameter("bench_max_range_m", 2.0)
         self.declare_parameter("stop_sign_max_range_m", 1.8)
+        self.declare_parameter("chair_max_range_m", 2.5)
+        self.declare_parameter("couch_max_range_m", 2.5)
+        self.declare_parameter("suitcase_max_range_m", 2.0)
         self.declare_parameter("person_min_observations", 3)
         self.declare_parameter("bench_min_observations", 4)
         self.declare_parameter("stop_sign_min_observations", 5)
+        self.declare_parameter("chair_min_observations", 3)
+        self.declare_parameter("couch_min_observations", 3)
+        self.declare_parameter("suitcase_min_observations", 3)
         self.declare_parameter("geometry_check_enabled", True)
         self.declare_parameter("geometry_check_radius_cells", 12)
         self.declare_parameter("person_max_islands", 2)
@@ -380,11 +389,17 @@ class SemanticMapMemoryNode(Node):
             "person": self.get_parameter("person_max_range_m").value,
             "bench": self.get_parameter("bench_max_range_m").value,
             "stop sign": self.get_parameter("stop_sign_max_range_m").value,
+            "chair": self.get_parameter("chair_max_range_m").value,
+            "couch": self.get_parameter("couch_max_range_m").value,
+            "suitcase": self.get_parameter("suitcase_max_range_m").value,
         }
         self._class_min_obs = {
             "person": self.get_parameter("person_min_observations").value,
             "bench": self.get_parameter("bench_min_observations").value,
             "stop sign": self.get_parameter("stop_sign_min_observations").value,
+            "chair": self.get_parameter("chair_min_observations").value,
+            "couch": self.get_parameter("couch_min_observations").value,
+            "suitcase": self.get_parameter("suitcase_min_observations").value,
         }
 
         self._geom_enabled = self.get_parameter("geometry_check_enabled").value

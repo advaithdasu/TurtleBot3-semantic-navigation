@@ -1,0 +1,50 @@
+<?xml version="1.0" ?>
+<!--
+  chair_red: reuses the vendored aws_robomaker_residential_ChairD_01 meshes
+  (footprint 0.58 x 0.51 m, height 0.78 m) but overrides the visual material
+  with a flat saturated red. In Gazebo Classic an SDF <material> replaces
+  the mesh texture with the flat color, which is intended: the color must be
+  unambiguous for HSV-based grounding. Mass/inertia mirror ChairD_01.
+-->
+<sdf version="1.6">
+  <model name="chair_red">
+    <link name="link">
+
+      <inertial>
+        <mass>4.5</mass>
+        <inertia>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyz>0</iyz>
+          <ixx>0.217</ixx>
+          <iyy>0.217</iyy>
+          <izz>0.067</izz>
+        </inertia>
+      </inertial>
+
+      <collision name="collision">
+        <geometry>
+          <mesh>
+            <uri>model://aws_robomaker_residential_ChairD_01/meshes/aws_ChairD_01_collision.DAE</uri>
+            <scale>1 1 1</scale>
+          </mesh>
+        </geometry>
+      </collision>
+
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>model://aws_robomaker_residential_ChairD_01/meshes/aws_ChairD_01_visual.DAE</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>1 0 0 1</ambient>
+          <diffuse>1 0 0 1</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+        <meta><layer>1</layer></meta>
+      </visual>
+
+    </link>
+  </model>
+</sdf>
