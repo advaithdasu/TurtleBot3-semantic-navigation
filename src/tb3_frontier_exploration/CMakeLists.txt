@@ -42,8 +42,12 @@ install(PROGRAMS
 install(DIRECTORY
   config
   launch
+  models
   worlds
   DESTINATION share/${PROJECT_NAME})
+
+# Puts share/<pkg>/models on GAZEBO_MODEL_PATH so model:// URIs resolve.
+ament_environment_hooks("${CMAKE_CURRENT_SOURCE_DIR}/env-hooks/tb3_frontier_exploration.dsv.in")
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)

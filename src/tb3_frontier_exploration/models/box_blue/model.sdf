@@ -1,0 +1,34 @@
+<?xml version="1.0" ?>
+<!--
+  box_blue: pure-SDF static cuboid with cardboard-box proportions
+  (0.4 x 0.4 x 0.35 m) and a flat saturated blue material for
+  HSV-based grounding. The model origin is at the BASE of the box
+  (link geometry offset +0.175 in z), so including it with pose z=0
+  rests it on the floor and z=<surface height> rests it on a surface.
+-->
+<sdf version="1.6">
+  <model name="box_blue">
+    <static>true</static>
+    <link name="link">
+      <pose>0 0 0.175 0 0 0</pose>
+
+      <collision name="collision">
+        <geometry>
+          <box><size>0.4 0.4 0.35</size></box>
+        </geometry>
+      </collision>
+
+      <visual name="visual">
+        <geometry>
+          <box><size>0.4 0.4 0.35</size></box>
+        </geometry>
+        <material>
+          <ambient>0 0 1 1</ambient>
+          <diffuse>0 0 1 1</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual>
+
+    </link>
+  </model>
+</sdf>
