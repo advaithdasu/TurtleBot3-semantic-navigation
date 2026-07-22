@@ -37,7 +37,11 @@ TEST_CASES: list[dict] = [
     {"command": "go to the person",      "expect_success": True,  "expect_name": "person"},
     {"command": "go to the table",       "expect_success": True,  "expect_name": "table"},
     {"command": "go to the stop sign",   "expect_success": True,  "expect_name": "stop_sign"},
-    {"command": "go to the chair",       "expect_success": False, "expect_name": ""},
+    # chair / box are targets in warehouse_aws_semantic.world (COCO
+    # "chair" / "suitcase" labels). Success requires the corresponding
+    # landmark already in memory when this test runs.
+    {"command": "go to the chair",       "expect_success": True,  "expect_name": "chair"},
+    {"command": "go to the box",         "expect_success": True,  "expect_name": "box"},
     {"command": "go to the fridge",      "expect_success": False, "expect_name": ""},
 
     # Indexed lookups exercising the three accepted spellings of

@@ -28,7 +28,10 @@ detector_node:
     #   stop_sign →  "stop sign"
     #   person    →  "person"
     #   sofa      →  "couch"
-    class_filter: ["bench", "person", "couch"]  # "stop sign" temporarily removed — restore for full 3-target testing
+    #   chair     →  "chair"
+    #   box       →  "suitcase"   (experimental — COCO has no "box" class;
+    #                              hit-rate measured by grounding/eval)
+    class_filter: ["bench", "person", "couch", "chair", "suitcase"]  # "stop sign" temporarily removed — restore for full 3-target testing
 
     # ── Topics ─────────────────────────────────────────────
     image_topic:        "/camera/image_raw"

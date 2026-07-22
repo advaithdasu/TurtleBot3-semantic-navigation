@@ -63,5 +63,27 @@ semantic_targets:
       color"). YOLOv8 COCO class 57 is "couch"; the parser also accepts
       the word "couch" via _PHRASE_ALIASES. Detection requires a real
       sofa/couch mesh in the Gazebo world — YOLO will not classify
-      primitive box geometry as a couch, so use a textured model
-      (e.g. from the Gazebo model database or an SDF with a mesh).
+      primitive box geometry as a couch, so use a textured model.
+      warehouse_aws_semantic.world now provides one: sofa_orange
+      (recolored AWS SofaB mesh).
+
+  - semantic_name:   "chair"
+    detector_label:  "chair"
+    gazebo_model:    "chair_blue"
+    enabled:         true
+    notes: >
+      Direct label match (COCO class 56). warehouse_aws_semantic.world
+      also contains chair_red (another recolored AWS ChairD) and the
+      vendored AWS ChairA/ChairD models.
+
+  - semantic_name:   "box"
+    detector_label:  "suitcase"
+    gazebo_model:    "box_blue"
+    enabled:         true
+    notes: >
+      Experimental mapping — COCO has no "box" class, so "suitcase"
+      (COCO class 28) is the nearest stand-in. YOLO may not fire on
+      plain cuboids at all; the grounding-side eval hits LocateAnything
+      directly for boxes. The parser also accepts the word "suitcase"
+      via _PHRASE_ALIASES. World also contains box_blue_floor, box_red,
+      box_yellow.
