@@ -79,6 +79,14 @@ WORLD_PRESETS = {
         "default_x": "-1.2",
         "default_y": "-1.2",
     },
+    "warehouse_aws": {
+        "file":      "warehouse_aws_semantic.world",
+        # Clear spawn zone: nearest furniture 1.9 m, west wall 1.0 m —
+        # outside Nav2's 0.55 m inflation radius. Layout table is in the
+        # world file header.
+        "default_x": "-3.0",
+        "default_y": "0.0",
+    },
 }
 
 # Used as the fallback when the user passes a custom world (absolute
@@ -355,7 +363,9 @@ def generate_launch_description():
             default_value="warehouse_models_person",
             description=(
                 "Gazebo world: alias (warehouse_models_person | "
-                "warehouse_models) or absolute path to a .world file."
+                "warehouse_models | warehouse_aws) or absolute path to "
+                "a .world file. warehouse_aws is the AWS-furnished 8x6 "
+                "room for query-time grounding evaluation."
             ),
         ),
 
