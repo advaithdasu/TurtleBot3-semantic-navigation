@@ -121,8 +121,11 @@ def show_poses(path: pathlib.Path) -> None:
         desc = pose.pop("description", "") if isinstance(pose, dict) else ""
         print(f"  {name:<16} {json.dumps(pose)}  {desc}")
     print(
-        "\nexample teleport (Gazebo Classic):\n"
-        "  ros2 service call /gazebo/set_entity_state ... "
+        "\nexample teleport (Gazebo Harmonic):\n"
+        "  gz service -s /world/<world>/set_pose --reqtype gz.msgs.Pose \\\n"
+        "    --reptype gz.msgs.Boolean --timeout 2000 \\\n"
+        "    --req 'name: \"waffle_pi\", position: {x: -3, y: 0, z: 0.01}'\n"
+        "(the world name is the <world name=...> in the .world file)\n"
         "or use teleop and eyeball it, then:\n"
         "  python3 grounding/eval/capture_frames.py --grab <name>"
     )

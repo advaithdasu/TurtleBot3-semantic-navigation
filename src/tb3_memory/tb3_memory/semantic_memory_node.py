@@ -128,7 +128,7 @@ class SemanticMemoryNode(Node):
 
             obj = self._core.update(obs)
 
-            self.get_logger().info(
+            self.get_logger().debug(
                 "[%s] id=%s  pos=(%.2f, %.2f)  seen=%d  conf=%.2f  active=%s"
                 % (
                     obj.detector_label,

@@ -252,7 +252,7 @@ tb3_nav_adapter/
 ```bash
 cd ~/TurtleBot3-semantic-navigation
 export PATH=$(echo $PATH | tr ':' '\n' | grep -v miniconda | tr '\n' ':')
-source /opt/ros/humble/setup.bash
+source /opt/ros/jazzy/setup.bash
 source install/setup.bash
 export TURTLEBOT3_MODEL=waffle_pi
 ros2 launch tb3_frontier_exploration detector_test_sim.launch.py
@@ -262,7 +262,7 @@ ros2 launch tb3_frontier_exploration detector_test_sim.launch.py
 
 ```bash
 export PATH=$(echo $PATH | tr ':' '\n' | grep -v miniconda | tr '\n' ':')
-source /opt/ros/humble/setup.bash && source install/setup.bash
+source /opt/ros/jazzy/setup.bash && source install/setup.bash
 ros2 launch tb3_detector detector.launch.py use_sim_time:=true
 ```
 
@@ -270,7 +270,7 @@ ros2 launch tb3_detector detector.launch.py use_sim_time:=true
 
 ```bash
 export PATH=$(echo $PATH | tr ':' '\n' | grep -v miniconda | tr '\n' ':')
-source /opt/ros/humble/setup.bash && source install/setup.bash
+source /opt/ros/jazzy/setup.bash && source install/setup.bash
 ros2 launch tb3_localizer localizer.launch.py use_sim_time:=true
 ```
 
@@ -278,7 +278,7 @@ ros2 launch tb3_localizer localizer.launch.py use_sim_time:=true
 
 ```bash
 export PATH=$(echo $PATH | tr ':' '\n' | grep -v miniconda | tr '\n' ':')
-source /opt/ros/humble/setup.bash && source install/setup.bash
+source /opt/ros/jazzy/setup.bash && source install/setup.bash
 ros2 launch tb3_memory semantic_memory.launch.py use_sim_time:=true
 ```
 
@@ -286,7 +286,7 @@ ros2 launch tb3_memory semantic_memory.launch.py use_sim_time:=true
 
 ```bash
 export PATH=$(echo $PATH | tr ':' '\n' | grep -v miniconda | tr '\n' ':')
-source /opt/ros/humble/setup.bash && source install/setup.bash
+source /opt/ros/jazzy/setup.bash && source install/setup.bash
 ros2 launch tb3_query semantic_query.launch.py use_sim_time:=true
 ```
 
@@ -294,7 +294,7 @@ ros2 launch tb3_query semantic_query.launch.py use_sim_time:=true
 
 ```bash
 export PATH=$(echo $PATH | tr ':' '\n' | grep -v miniconda | tr '\n' ':')
-source /opt/ros/humble/setup.bash && source install/setup.bash
+source /opt/ros/jazzy/setup.bash && source install/setup.bash
 ros2 launch tb3_nav_adapter nav_goal_adapter.launch.py use_sim_time:=true
 ```
 
@@ -302,7 +302,7 @@ ros2 launch tb3_nav_adapter nav_goal_adapter.launch.py use_sim_time:=true
 
 ```bash
 export PATH=$(echo $PATH | tr ':' '\n' | grep -v miniconda | tr '\n' ':')
-source /opt/ros/humble/setup.bash && source install/setup.bash
+source /opt/ros/jazzy/setup.bash && source install/setup.bash
 
 ros2 topic pub --once /semantic_query_node/command std_msgs/String "data: 'go to the person'"
 

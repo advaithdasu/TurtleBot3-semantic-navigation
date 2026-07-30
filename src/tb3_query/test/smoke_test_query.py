@@ -8,7 +8,7 @@ waits for each SemanticQueryResult response, and reports pass/fail.
 Requires: semantic_query_node + semantic_memory_node already running.
 
 Usage:
-    source /opt/ros/humble/setup.bash
+    source /opt/ros/jazzy/setup.bash
     source install/setup.bash
     python3 src/tb3_query/test/smoke_test_query.py
 """

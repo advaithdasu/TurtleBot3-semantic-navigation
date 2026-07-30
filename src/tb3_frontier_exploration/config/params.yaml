@@ -18,10 +18,13 @@ frontier_detection_node:
     frame_id: "map"
 
     # Minimum number of adjacent frontier cells to form a cluster; smaller clusters are discarded.
-    min_cluster_size: 3 # default is 5
+    # 8 cells ≈ 0.4 m at 5 cm resolution; 3 admits 15 cm noise slivers behind furniture legs.
+    min_cluster_size: 8 # default is 5
 
-    # Max cost at centroid to accept a frontier (0–255). Centroids with cost > this are rejected when use_costmap_filter is true.
-    cost_threshold: 150 # default is 128
+    # Max cost at centroid to accept a frontier (OccupancyGrid scale 0–100, unknown=-1).
+    # Centroids with cost > this are rejected when use_costmap_filter is true.
+    # 65 keeps centroids below Nav2's inflated/lethal band.
+    cost_threshold: 65 # default is 65
 
     # If true, reject frontier centroids whose costmap cost exceeds cost_threshold.
     use_costmap_filter: true
@@ -45,7 +48,10 @@ goal_assignment_node:
     min_frontier_distance: 0.5
 
     # Cancel a goal and try another if it does not complete within this time (s).
-    goal_timeout: 20.0 # default is 60.0
+    # At 0.26 m/s max speed, 20 s only covers ~5 m straight-line; cross-room paths
+    # plus rotations legitimately need far more, and premature timeouts blacklist
+    # good frontiers. 90 s is generous but only fires on truly stuck goals.
+    goal_timeout: 90.0 # default is 60.0
 
     # Frame for goal poses (typically "map"). Also used for TF lookups (map -> base_link).
     frame_id: "map"
@@ -66,8 +72,10 @@ goal_assignment_node:
     startup_warmup_timeout_sec: 90.0
 
     # Anti-loop: drop frontier centroids near map positions already reached successfully >= N times.
+    # Radius must exceed half the spacing of fallback goals (sampled at 1.5 m radius,
+    # endpoints >= 0.9 m apart) or alternating goals never accumulate visits.
     enable_repeated_centroid_filter: true
-    repeated_centroid_reject_radius: 0.45
+    repeated_centroid_reject_radius: 0.8
     repeated_centroid_max_visits: 2
 
     # Selection strategy: "nearest" = choose closest frontier to robot. Other values reserved for future use.

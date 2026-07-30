@@ -17,10 +17,15 @@ detector_node:
     device: "cpu"                     # "cpu" | "cuda:0"
     enable_tracking: false            # true = ByteTrack; track_id populated
 
+    # Minimum seconds between YOLO inferences. Frames arriving sooner are
+    # dropped in the image callback. 0.2 caps inference at ~5 Hz, which is
+    # all downstream consumers need; CPU inference cannot sustain 30 Hz.
+    min_inference_interval_sec: 0.2
+
     # ── Class filter ───────────────────────────────────────
     # List COCO detector_label values from semantic_targets.yaml (validated in sim).
     # IMPORTANT: use detector_label strings, NOT semantic_name or gazebo_model names.
-    # IMPORTANT: do NOT use bare [] — rclpy Humble cannot infer type from an empty
+    # IMPORTANT: do NOT use bare [] — rclpy cannot infer a type from an empty
     #            YAML list and will crash. Use [""] to accept ALL classes.
     #
     #   semantic  →  detector_label  (see config/semantic_targets.yaml)

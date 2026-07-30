@@ -103,14 +103,19 @@ class LocalizerCore:
 
         Invalid values (nan, inf, out-of-bounds) are discarded.  Returns None if
         no valid range remains — meaning the object has no usable LiDAR return.
+
+        Scan angles wrap [0, 2π) with index 0 = straight ahead, so the window
+        wraps around the array ends (an object dead-center straddles index 0).
         """
         n = len(ranges)
-        lo = max(0, center_index - self.scan_window_half)
-        hi = min(n, center_index + self.scan_window_half + 1)
+        if n == 0:
+            return None
+        # Cap the half-window so wrap-around never revisits the same ray.
+        half = min(self.scan_window_half, (n - 1) // 2)
 
         valid: list[float] = []
-        for i in range(lo, hi):
-            r = ranges[i]
+        for offset in range(-half, half + 1):
+            r = ranges[(center_index + offset) % n]
             if math.isfinite(r) and self.min_valid_range <= r <= self.max_valid_range:
                 valid.append(r)
 

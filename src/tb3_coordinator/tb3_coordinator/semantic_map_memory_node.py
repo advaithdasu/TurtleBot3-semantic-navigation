@@ -17,7 +17,6 @@ Pipeline per observation:
 from __future__ import annotations
 
 import math
-import time as _time
 from collections import deque
 from dataclasses import dataclass
 from typing import Optional
@@ -131,7 +130,7 @@ def find_nearest_valid_island(
     if not islands:
         return None
     best = min(islands, key=lambda t: math.hypot(t[0] - cx, t[1] - cy))
-    return grid_to_world(int(best[0]), int(best[1]), origin_x, origin_y, resolution)
+    return grid_to_world(best[0], best[1], origin_x, origin_y, resolution)
 
 
 
@@ -196,13 +195,13 @@ def find_bench_cluster_centroid(
     if not nearby:
         # Fallback: nearest single island
         best = min(valid_islands, key=lambda t: math.hypot(t[0] - cx, t[1] - cy))
-        pt = grid_to_world(int(best[0]), int(best[1]), origin_x, origin_y, resolution)
+        pt = grid_to_world(best[0], best[1], origin_x, origin_y, resolution)
         if logger:
             logger.info("[bench] fallback nearest island at (%.2f, %.2f)" % pt)
         return pt
 
     if len(nearby) == 1:
-        pt = grid_to_world(int(nearby[0][0]), int(nearby[0][1]),
+        pt = grid_to_world(nearby[0][0], nearby[0][1],
                            origin_x, origin_y, resolution)
         if logger:
             logger.info("[bench] single island at (%.2f, %.2f)  %d px" % (pt[0], pt[1], nearby[0][2]))
@@ -212,7 +211,7 @@ def find_bench_cluster_centroid(
     total_px = sum(t[2] for t in nearby)
     wgx = sum(t[0] * t[2] for t in nearby) / total_px
     wgy = sum(t[1] * t[2] for t in nearby) / total_px
-    pt = grid_to_world(int(wgx), int(wgy), origin_x, origin_y, resolution)
+    pt = grid_to_world(wgx, wgy, origin_x, origin_y, resolution)
     if logger:
         logger.info("[bench] cluster %d islands  %d total_px  centroid (%.2f, %.2f)"
                     % (len(nearby), total_px, pt[0], pt[1]))
@@ -438,6 +437,15 @@ class SemanticMapMemoryNode(Node):
         self._landmarks = {}
         self._next_seq = {}
 
+        # Observation de-dup: the input topic is a 1 Hz *snapshot* of the
+        # upstream memory registry, so one real YOLO detection is republished
+        # for the whole stale window and would inflate observation counts.
+        # Count each upstream object id at most once per window.
+        # 5.0 matches stale_timeout in tb3_memory/config/semantic_memory.yaml
+        # (a semantic_memory_node parameter, not accessible from this node).
+        self._obs_dedup_window_sec = 5.0
+        self._last_counted = {}   # upstream object id -> node-clock secs last counted
+
         self.create_timer(1.0 / max(pub_rate, 0.1), self._publish_markers)
         self.create_timer(5.0, self._cleanup_candidates)
 
@@ -467,6 +475,13 @@ class SemanticMapMemoryNode(Node):
             label = det.results[0].hypothesis.class_id
             src = det.header.frame_id or msg.header.frame_id or "base_link"
 
+            now = self.get_clock().now().nanoseconds * 1e-9
+            obj_id = det.id
+            if obj_id:
+                last = self._last_counted.get(obj_id)
+                if last is not None and (now - last) < self._obs_dedup_window_sec:
+                    continue
+
             raw_x = det.bbox.center.position.x
             raw_y = det.bbox.center.position.y
             obs_range = math.hypot(raw_x, raw_y)
@@ -485,7 +500,10 @@ class SemanticMapMemoryNode(Node):
                 pt_out = self._tf_buffer.transform(
                     pt_in, self._frame,
                     timeout=Duration(seconds=self._tf_tout))
-            except Exception:
+            except Exception as e:
+                self.get_logger().warning(
+                    "TF transform %s -> %s failed: %s" % (src, self._frame, e),
+                    throttle_duration_sec=5.0)
                 continue
 
             mx, my = pt_out.point.x, pt_out.point.y
@@ -540,7 +558,10 @@ class SemanticMapMemoryNode(Node):
                 self.get_logger().info("[mutex] %s" % mutex_reason)
                 continue
 
-            now = _time.time()
+            # Observation survived every filter: it will be counted below,
+            # so record it for the per-object-id de-dup window.
+            if obj_id:
+                self._last_counted[obj_id] = now
 
             matched_lm = self._find_landmark(label, rx, ry)
             if matched_lm is not None:
@@ -664,13 +685,17 @@ class SemanticMapMemoryNode(Node):
             % (lid, lm.x, lm.y, c.obs_count, len(self._landmarks)))
 
     def _cleanup_candidates(self):
-        now = _time.time()
+        now = self.get_clock().now().nanoseconds * 1e-9
         before = len(self._candidates)
         self._candidates = [
             c for c in self._candidates if (now - c.last_seen) < self._cand_tout]
         removed = before - len(self._candidates)
         if removed > 0:
             self.get_logger().info("[cleanup] Removed %d stale candidates" % removed)
+        # Bound the de-dup map: drop ids not counted for a long time.
+        self._last_counted = {
+            k: t for k, t in self._last_counted.items()
+            if (now - t) < self._cand_tout}
 
     def _publish_markers(self):
         ma = MarkerArray()

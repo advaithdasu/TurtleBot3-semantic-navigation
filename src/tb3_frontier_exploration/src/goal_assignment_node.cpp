@@ -28,7 +28,7 @@
  * - Subscribes to the frontier centroid topic (default `/frontiers`) as `geometry_msgs/PoseArray`, produced by
  *   the frontier detection node.
  * - Obtains the robot pose in the **map** frame using **TF** (`frame_id` → `robot_base_frame`, e.g. map → base_link).
- *   Odometry is subscribed for topic compatibility but pose selection uses TF only in the current implementation.
+ *   Odometry is cached for goal-yaw computation; pose selection uses TF only in the current implementation.
  * - **Filters** frontier candidates: drops goals too close to the robot and optionally avoids a disk around the
  *   last failed/canceled/aborted goal.
  * - **Selects** the best valid frontier using a **nearest-to-robot** policy among remaining candidates.
@@ -65,7 +65,7 @@ public:
    * 1. Declares parameters for frontier and odom topic names, Nav2 action name, map/base frames, timeouts,
    *    selection distances, timer rate, and exploration-complete log throttling.
    * 2. Creates `tf2_ros::Buffer` and `TransformListener` for map-frame robot position.
-   * 3. Subscribes to `PoseArray` frontiers and `Odometry` (odom callback is currently a no-op).
+   * 3. Subscribes to `PoseArray` frontiers and `Odometry` (odom pose is cached for goal-yaw computation).
    * 4. Creates the `NavigateToPose` action client and a wall timer at `rate` Hz to run `timerCallback`.
    * 5. Logs startup configuration (topics, distances, timeout).
    *
@@ -163,16 +163,30 @@ public:
     startup_warmup_done_ = !require_startup_warmup_;
     warmup_watch_start_ = now();
     std::string warmup_topic = get_parameter("startup_warmup_complete_topic").as_string();
+    // startup_map_warmup_node publishes the complete signal latched
+    // (TRANSIENT_LOCAL); match that durability so a late-joining
+    // goal_assignment still receives it instead of idling until
+    // startup_warmup_timeout_sec.
     warmup_sub_ = create_subscription<std_msgs::msg::Bool>(
-      warmup_topic, rclcpp::QoS(10),
+      warmup_topic, rclcpp::QoS(10).transient_local(),
       std::bind(&GoalAssignmentNode::warmupCompleteCallback, this, std::placeholders::_1));
 
     exploration_enabled_sub_ = create_subscription<std_msgs::msg::Bool>(
       "exploration_enabled", rclcpp::QoS(10),
       [this](const std_msgs::msg::Bool::SharedPtr msg) {
+        const bool was_enabled = exploration_enabled_;
         exploration_enabled_ = msg->data;
         RCLCPP_INFO(get_logger(), "[exploration] %s via /exploration_enabled",
           exploration_enabled_ ? "ENABLED" : "DISABLED");
+        // On true→false, cancel any in-flight Nav2 goal; otherwise the robot
+        // keeps driving toward it and fights the coordinator's semantic goal.
+        // Flag it so the CANCELED result is not recorded as a failed goal.
+        if (was_enabled && !exploration_enabled_ && current_goal_handle_) {
+          RCLCPP_INFO(get_logger(),
+            "[exploration] Canceling in-flight goal (exploration disabled)");
+          canceled_by_disable_ = true;
+          nav_client_->async_cancel_goal(current_goal_handle_);
+        }
       });
 
     double rate_hz = get_parameter("rate").as_double();
@@ -275,25 +289,25 @@ private:
   }
 
   /**
-   * @brief Odometry subscription callback (currently unused for pose or control).
+   * @brief Odometry subscription callback: cache the latest robot pose for goal-yaw computation.
    *
-   * @param msg Latest `nav_msgs/Odometry` on `odom_topic` (ignored in the body).
-   * @return void.
+   * @param msg Latest `nav_msgs/Odometry` on `odom_topic`.
+   * @return void; writes `latest_odom_pose_`.
    *
    * Pipeline role:
-   * - Reserved hook for future use (e.g. velocity checks or fallback pose); **does not** participate in frontier
-   *   selection today—robot position comes from TF in `getRobotPoseInMap`.
+   * - Supplies the robot position used by `dispatchNavGoal` to orient each goal toward the direction
+   *   of travel. Frontier **selection** distance still comes from TF in `getRobotPoseInMap`.
    *
    * Implementation summary:
-   * 1. Cast `msg` to void to silence unused-parameter warnings.
+   * 1. Store `msg->pose.pose` in `latest_odom_pose_`.
    *
    * Notes:
-   * - Keeping the subscription allows the node to match launch files that expect an odom topic without extra nodes.
-   * - Do not assume pose is updated here when reading or extending the code.
+   * - The pose is in the odom frame while goals are in map frame; map-vs-odom drift is negligible
+   *   in this sim for the purpose of a goal yaw.
    */
   void odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg)
   {
-    (void)msg;
+    latest_odom_pose_ = msg->pose.pose;
   }
 
   /**
@@ -455,8 +469,8 @@ private:
    * 5. `getRobotPoseInMap`; on failure return.
    * 6. `selectBestFrontier`; if none, log and `logExplorationCompleteIfDue`, return.
    * 7. Log selection; erase chosen pose from `latest_frontiers_->poses` under mutex (avoid immediate duplicate from cache).
-   * 8. Build `NavigateToPose::Goal` with identity quaternion; set `current_goal_x_/y_`; set state `NAVIGATING`;
-   *    register `goal_response_callback` and `result_callback`; call `async_send_goal`.
+   * 8. Build `NavigateToPose::Goal` facing the direction of travel; set `current_goal_x_/y_`; set state
+   *    `NAVIGATING`; register `goal_response_callback` and `result_callback`; call `async_send_goal`.
    *
    * Notes:
    * - State is set to `NAVIGATING` **before** acceptance; if the server **rejects**, the response callback resets to `IDLE`.
@@ -481,6 +495,21 @@ private:
           if (handle) {
             nav_client_->async_cancel_goal(handle);
           }
+        }
+      } else if (goal_dispatch_time_) {
+        // No-response watchdog: dispatchNavGoal sets NAVIGATING before the
+        // action response arrives. If the response never comes (e.g. a
+        // CPU-starved bt_navigator), the timeout branch above can never fire
+        // because current_goal_handle_/goal_sent_time_ are only set in the
+        // goal_response callback — the node would wedge in NAVIGATING forever.
+        constexpr double kGoalResponseWatchdogSec = 15.0;
+        double since_dispatch = (now() - *goal_dispatch_time_).seconds();
+        if (since_dispatch >= kGoalResponseWatchdogSec) {
+          RCLCPP_WARN(get_logger(),
+            "[watchdog] No action response %.1fs after dispatch — resetting to IDLE",
+            since_dispatch);
+          goal_dispatch_time_.reset();
+          state_ = State::IDLE;
         }
       }
       return;
@@ -692,8 +721,8 @@ private:
   }
 
   /**
-   * @brief Build a NavigateToPose goal at (gx, gy) with identity orientation
-   *        and dispatch it asynchronously, wiring response/result callbacks.
+   * @brief Build a NavigateToPose goal at (gx, gy) facing the direction of
+   *        travel and dispatch it asynchronously, wiring response/result callbacks.
    *
    * Used by both the frontier path and the fallback-drive path so the FSM
    * transitions, timeout bookkeeping, and failure recording stay identical
@@ -714,19 +743,38 @@ private:
     goal.pose.pose.position.x = gx;
     goal.pose.pose.position.y = gy;
     goal.pose.pose.position.z = 0.0;
-    goal.pose.pose.orientation.w = 1.0;
+    // Face the direction of travel so the robot does not have to spin in
+    // place at every goal to satisfy Nav2's yaw tolerance. Uses the latest
+    // odom pose for the robot position; map-vs-odom drift is negligible in
+    // this sim for a goal yaw. Falls back to identity (yaw=0) until the
+    // first odom message arrives.
+    double yaw = 0.0;
+    if (latest_odom_pose_) {
+      yaw = std::atan2(gy - latest_odom_pose_->position.y,
+                       gx - latest_odom_pose_->position.x);
+    }
+    goal.pose.pose.orientation.w = std::cos(yaw / 2.0);
     goal.pose.pose.orientation.x = 0.0;
     goal.pose.pose.orientation.y = 0.0;
-    goal.pose.pose.orientation.z = 0.0;
+    goal.pose.pose.orientation.z = std::sin(yaw / 2.0);
 
     current_goal_x_ = gx;
     current_goal_y_ = gy;
+    goal_dispatch_time_ = now();
 
     auto send_opts = rclcpp_action::Client<NavigateToPose>::SendGoalOptions();
     const std::string source_tag(source);
-    send_opts.goal_response_callback = [this, source_tag](typename GoalHandle::SharedPtr gh) {
+    // Shared slot for this dispatch's accepted handle. The result callback
+    // compares it against current_goal_handle_ so a stale result (e.g. the
+    // CANCELED result of a timed-out goal arriving after a NEW goal was
+    // dispatched) cannot clear the new goal's state or blacklist the new
+    // goal's coordinates.
+    auto dispatched_handle = std::make_shared<typename GoalHandle::SharedPtr>();
+    send_opts.goal_response_callback =
+      [this, source_tag, dispatched_handle](typename GoalHandle::SharedPtr gh) {
       if (gh) {
         RCLCPP_INFO(get_logger(), "[action] Goal accepted (%s)", source_tag.c_str());
+        *dispatched_handle = gh;
         current_goal_handle_ = gh;
         goal_sent_time_ = now();
         state_ = State::NAVIGATING;
@@ -736,28 +784,46 @@ private:
         state_ = State::IDLE;
       }
     };
-    send_opts.result_callback = [this, source_tag](const GoalHandle::WrappedResult & result) {
+    // Capture this goal's coordinates by value: current_goal_x_/y_ may
+    // already belong to a newer goal by the time this result arrives.
+    send_opts.result_callback =
+      [this, source_tag, dispatched_handle, gx, gy](const GoalHandle::WrappedResult & result) {
+      if (*dispatched_handle != current_goal_handle_) {
+        RCLCPP_DEBUG(get_logger(), "[result] Ignoring stale result (%s)", source_tag.c_str());
+        return;
+      }
       current_goal_handle_.reset();
       goal_sent_time_.reset();
       state_ = State::IDLE;
+      // Consume the disable-cancel flag on any terminal result so it cannot
+      // leak into a later, unrelated CANCELED result.
+      const bool was_disable_cancel = canceled_by_disable_;
+      canceled_by_disable_ = false;
 
       switch (result.code) {
         case rclcpp_action::ResultCode::SUCCEEDED:
           RCLCPP_INFO(get_logger(), "[result] SUCCEEDED (%s)", source_tag.c_str());
           last_failed_goal_.reset();
-          recordSuccessfulVisit(current_goal_x_, current_goal_y_);
+          recordSuccessfulVisit(gx, gy);
           break;
         case rclcpp_action::ResultCode::ABORTED:
           RCLCPP_WARN(get_logger(), "[result] ABORTED (%s)", source_tag.c_str());
-          recordFailedGoal(current_goal_x_, current_goal_y_);
+          recordFailedGoal(gx, gy);
           break;
         case rclcpp_action::ResultCode::CANCELED:
-          RCLCPP_WARN(get_logger(), "[result] CANCELED (%s)", source_tag.c_str());
-          recordFailedGoal(current_goal_x_, current_goal_y_);
+          if (was_disable_cancel) {
+            // Canceled because exploration was disabled — not a real
+            // failure, so do not blacklist the goal position.
+            RCLCPP_INFO(get_logger(), "[result] CANCELED (%s, exploration disabled)",
+              source_tag.c_str());
+          } else {
+            RCLCPP_WARN(get_logger(), "[result] CANCELED (%s)", source_tag.c_str());
+            recordFailedGoal(gx, gy);
+          }
           break;
         default:
           RCLCPP_WARN(get_logger(), "[result] Unknown code (%s)", source_tag.c_str());
-          recordFailedGoal(current_goal_x_, current_goal_y_);
+          recordFailedGoal(gx, gy);
       }
     };
 
@@ -995,8 +1061,17 @@ private:
   State state_;
   typename GoalHandle::SharedPtr current_goal_handle_;
   std::optional<rclcpp::Time> goal_sent_time_;
+  // Set in dispatchNavGoal (before the action response arrives); drives the
+  // no-response watchdog in timerCallback.
+  std::optional<rclcpp::Time> goal_dispatch_time_;
   double current_goal_x_{0.0};
   double current_goal_y_{0.0};
+  // True while an in-flight goal was canceled because exploration was
+  // disabled; suppresses recordFailedGoal for that CANCELED result.
+  bool canceled_by_disable_{false};
+  // Latest odom pose, cached by odomCallback; used by dispatchNavGoal to
+  // orient goals toward the direction of travel.
+  std::optional<geometry_msgs::msg::Pose> latest_odom_pose_;
 
   // Point is forward-declared at the top of the private section.
   std::optional<Point> last_failed_goal_;

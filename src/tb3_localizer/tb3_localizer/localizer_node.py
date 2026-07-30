@@ -194,7 +194,7 @@ class LocalizerNode(Node):
 
             det3d_array.detections.append(d3)
 
-            self.get_logger().info(
+            self.get_logger().debug(
                 "[%s] conf=%.2f  u=%.0f  bearing=%.1f°  range=%.2fm  "
                 "→ base_link (%.2f, %.2f)"
                 % (
