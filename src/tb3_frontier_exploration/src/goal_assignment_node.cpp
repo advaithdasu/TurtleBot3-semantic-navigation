@@ -370,6 +370,10 @@ private:
    * @param rx Robot x in map frame (meters), from TF.
    * @param ry Robot y in map frame (meters), from TF.
    * @param frame_id In/out: goal frame string; if empty on input, set from `frontiers.header.frame_id` when a candidate exists.
+   * @param ignore_anti_loop When true, skip the repeated-centroid filter (min_frontier_distance and
+   *        failed_goal_avoidance_radius still apply). Used as a last-resort retry so a real, newly-detected
+   *        frontier is never permanently blacklisted just because it happens to fall within
+   *        `repeated_centroid_reject_radius` of two or more *distinct* prior stops.
    * @return Index of the selected pose in `frontiers.poses`, or `std::nullopt` if every candidate is filtered out.
    *
    * Pipeline role:
@@ -390,7 +394,8 @@ private:
   std::optional<size_t> selectBestFrontier(
     const geometry_msgs::msg::PoseArray & frontiers,
     double rx, double ry,
-    std::string & frame_id)
+    std::string & frame_id,
+    bool ignore_anti_loop = false)
   {
     const double min_dist = get_parameter("min_frontier_distance").as_double();
     const double min_dist_sq = min_dist * min_dist;
@@ -423,7 +428,7 @@ private:
         }
       }
 
-      if (get_parameter("enable_repeated_centroid_filter").as_bool()) {
+      if (!ignore_anti_loop && get_parameter("enable_repeated_centroid_filter").as_bool()) {
         const double loop_r = get_parameter("repeated_centroid_reject_radius").as_double();
         const int max_vis = get_parameter("repeated_centroid_max_visits").as_int();
         if (loop_r > 0.0 && max_vis > 0) {
@@ -619,9 +624,42 @@ private:
       }
     }
 
+    // ── Path 2.5: anti-loop override — last resort ──────────────────────
+    // We only reach here when Path 1 (frontier) and Path 2 (fallback) both
+    // failed to produce a goal. If a real frontier exists but was rejected
+    // solely by the repeated-centroid filter, retry ignoring it (distance
+    // and failed-goal-avoidance filters still apply). Without this, a
+    // frontier that happens to land within `repeated_centroid_reject_radius`
+    // of two prior *distinct* stops is permanently unreachable — the
+    // "robot frozen forever, cycling exploration-complete/resuming logs"
+    // livelock. `frontiers` here is the same snapshot used for Path 1 above
+    // (nothing was erased from it since selectBestFrontier found no match).
+    if (frontiers && !frontiers->poses.empty()) {
+      std::optional<size_t> override_opt =
+        selectBestFrontier(*frontiers, rx, ry, frame_id, /*ignore_anti_loop=*/true);
+      if (override_opt) {
+        size_t best = *override_opt;
+        double gx = frontiers->poses[best].position.x;
+        double gy = frontiers->poses[best].position.y;
+        RCLCPP_WARN(get_logger(),
+          "[goal] Anti-loop override: selected [%zu] (%.2f, %.2f) — frontier and fallback "
+          "both exhausted; ignoring repeated-centroid filter to avoid livelock",
+          best, gx, gy);
+        {
+          std::lock_guard<std::mutex> lock(frontiers_mutex_);
+          if (latest_frontiers_ && best < latest_frontiers_->poses.size()) {
+            latest_frontiers_->poses.erase(latest_frontiers_->poses.begin() + best);
+          }
+        }
+        dispatchNavGoal(gx, gy, frame_id, "frontier-override");
+        return;
+      }
+    }
+
     // ── Path 3: detect "exploration complete" ────────────────────────────
-    // We reach here only when BOTH the frontier and the fallback paths
-    // failed to produce a goal this tick. Two complementary triggers:
+    // We reach here only when the frontier, fallback, AND anti-loop-override
+    // paths all failed to produce a goal this tick. Two complementary
+    // triggers:
     //
     //   (a) `empty_frontier_streak_` ≥ threshold:
     //       /frontiers has been an empty PoseArray for K consecutive
