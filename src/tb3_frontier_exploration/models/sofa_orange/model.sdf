@@ -3,9 +3,9 @@
   sofa_orange: reuses the vendored aws_robomaker_residential_SofaB_01 meshes
   (footprint 0.74 x 0.85 m, height 0.91 m, seat surface at z = 0.44,
   backrest on the -X side so the sofa faces +X) but overrides the visual
-  material with a flat saturated orange. In Gazebo Classic an SDF <material>
-  replaces the mesh texture with the flat color, which is intended: the
-  color must be unambiguous for HSV-based grounding.
+  material with a flat saturated orange. An SDF <material> overrides the
+  material baked into the mesh, which is intended: the color must be
+  unambiguous for HSV-based grounding.
 
   Unlike the vendored SofaB_01 (dynamic, mass 72.5), this model is STATIC:
   warehouse_aws_semantic.world poses a box on its seat and every manifest

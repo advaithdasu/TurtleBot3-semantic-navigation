@@ -30,7 +30,7 @@ So: one centroid per connected frontier blob, after dropping small blobs.
 
 ```bash
 cd /path/to/ros2_ws
-source /opt/ros/humble/setup.bash
+source /opt/ros/jazzy/setup.bash
 colcon build --packages-select tb3_frontier_exploration
 source install/setup.bash
 ```

@@ -1,0 +1,61 @@
+<?xml version="1.0" ?>
+<!--
+  person_standing — vendored from osrf/gazebo_models (author: Marina
+  Kollmitz, built with MakeHuman; see model.config).
+
+  Gazebo Classic downloaded this from its online model database on demand.
+  gz-sim has no such fallback (its equivalent is Fuel, which needs network
+  access at run time), so the model is checked in here and resolved through
+  GZ_SIM_RESOURCE_PATH like the AWS RoboMaker props.
+
+  Two deliberate changes from upstream, both for simulation cost. The
+  visual mesh is byte-identical, so camera appearance — and therefore the
+  YOLO "person" detections that grounding/eval depends on — is unchanged:
+
+    * <static>true</static>. Upstream leaves it dynamic: an 80 kg free body
+      that nothing in this project ever intends to move.
+    * The detailed mesh collision is replaced by a body-sized box. DART
+      solves non-convex mesh contacts far more expensively than primitives,
+      and the box preserves the property that matters (the robot cannot
+      drive through a person). The lidar is unaffected either way —
+      gz-sim's gpu_lidar raycasts against visuals, not collisions.
+-->
+<sdf version="1.6">
+  <model name="person_standing">
+    <static>true</static>
+    <link name="link">
+      <inertial>
+        <pose>0 -0.1 0.95 0 0 0</pose>
+        <mass>80.0</mass>
+        <inertia>
+          <ixx>24.88</ixx>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>25.73</iyy>
+          <iyz>0</iyz>
+          <izz>2.48</izz>
+        </inertia>
+      </inertial>
+
+      <!-- Body-sized box standing in for the mesh: 0.5 m shoulder width,
+           0.35 m depth, 1.8 m tall, centred on the mesh's torso axis. -->
+      <collision name="person">
+        <pose>0 -0.05 0.9 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.5 0.35 1.8</size>
+          </box>
+        </geometry>
+      </collision>
+
+      <visual name="visual">
+        <pose>0 0 0.02 0.04 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>model://person_standing/meshes/standing.dae</uri>
+          </mesh>
+        </geometry>
+      </visual>
+    </link>
+  </model>
+</sdf>

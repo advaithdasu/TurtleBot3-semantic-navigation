@@ -12,7 +12,7 @@ licensed **MIT-0** (see `LICENSE` in this directory):
 Local changes to the vendored copies:
 
 - Rewrote the warehouse models' `file://models/<name>/...` mesh URIs to
-  portable `model://<name>/...` URIs (resolved via `GAZEBO_MODEL_PATH`).
+  portable `model://<name>/...` URIs (resolved via `GZ_SIM_RESOURCE_PATH`).
 - Deleted `.DS_Store` / `.psd` files.
 
 ### Vendored directories
@@ -29,10 +29,32 @@ Local changes to the vendored copies:
 | `aws_robomaker_residential_ChairD_01` | small-house-world | 0.58 x 0.51 x 0.78 |
 | `aws_robomaker_residential_SofaB_01` | small-house-world | 0.74 x 0.85 x 0.91 (seat surface at z = 0.44) |
 
+### Vendored from the Gazebo Classic model database
+
+`person_standing`, `table_marble` and `stop_sign` come from
+[osrf/gazebo_models](https://github.com/osrf/gazebo_models). Gazebo Classic
+fetched these from its online model database on demand; gz-sim has no such
+fallback — its equivalent, Fuel, would need network access at run time — so
+they are checked in and resolved through `GZ_SIM_RESOURCE_PATH` like
+everything else here. Attribution for each is in its `model.config`.
+
+Each `model.sdf` was edited for gz-sim; see the header comment in the file
+for the reasoning. In summary:
+
+| Directory | Change from upstream |
+|---|---|
+| `person_standing` | Made `<static>`, detailed mesh collision replaced by a 0.5 x 0.35 x 1.8 m box. Visual mesh untouched, so YOLO `person` detection is unaffected. |
+| `table_marble` | Ogre `<material><script>` replaced by a PBR `<albedo_map>` (`marble.png`); baked lightmap layer dropped; upstream `model:///` URI typo fixed. |
+| `stop_sign` | Ogre `<material><script>` replaced by a PBR `<albedo_map>` (`StopSign_Diffuse.png`); the unused `StopSign_Spec.png` is not vendored. |
+
+Unreferenced textures were left out to keep the checkout small: the two
+`-unmodified.png` variants under `person_standing` are not loaded by
+`standing.dae`.
+
 ## Authored here (not vendored)
 
 Color-variant models for HSV-based visual grounding — an SDF `<material>`
-with flat ambient/diffuse replaces the mesh texture in Gazebo Classic, which
+with flat ambient/diffuse overrides the material baked into the mesh, which
 is intentional: colors must be unambiguous.
 
 | Directory | Basis | Color (diffuse) |

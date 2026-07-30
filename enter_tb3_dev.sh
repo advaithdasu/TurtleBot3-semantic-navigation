@@ -7,8 +7,8 @@
 # BASH_SOURCE trick: the directory containing this script is the workspace root.
 WS_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# 1. Source ROS2 Humble
-source /opt/ros/humble/setup.bash
+# 1. Source ROS2 Jazzy
+source /opt/ros/jazzy/setup.bash
 
 # 2. Source workspace install
 if [ -f "${WS_ROOT}/install/setup.bash" ]; then

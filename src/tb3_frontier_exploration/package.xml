@@ -21,7 +21,9 @@
   <exec_depend>rclpy</exec_depend>
   <exec_depend>python3-yaml</exec_depend>
   <exec_depend>ament_index_python</exec_depend>
-  <exec_depend>gazebo_ros</exec_depend>
+  <exec_depend>ros_gz_sim</exec_depend>
+  <exec_depend>ros_gz_bridge</exec_depend>
+  <exec_depend>ros_gz_image</exec_depend>
   <exec_depend>turtlebot3_gazebo</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
@@ -29,7 +31,8 @@
 
   <export>
     <build_type>ament_cmake</build_type>
-    <!-- Resolve model:// URIs for the models/ directory. -->
-    <gazebo_ros gazebo_model_path="${prefix}/models"/>
+    <!-- model:// URIs for models/ are resolved via GZ_SIM_RESOURCE_PATH,
+         set by env-hooks/tb3_frontier_exploration.dsv.in. Gazebo Classic's
+         <gazebo_ros gazebo_model_path=...> export has no gz-sim equivalent. -->
   </export>
 </package>
