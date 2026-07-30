@@ -112,6 +112,13 @@ class CoordinatorNode(Node):
         self._nav_timeout_timer = None
         self._sweep_timer = None
         self._sweep_done = False
+        # nav_goal_adapter_node subscribes to the same selected_target
+        # message independently of us; its goal_pose can arrive before our
+        # own _query_result_cb has finished flipping mode to SEMANTIC_NAV
+        # (cross-process race, no ordering guarantee). Buffer it here and
+        # dispatch as soon as the mode catches up, instead of silently
+        # dropping it and wedging in SEMANTIC_NAV forever.
+        self._pending_goal_pose = None
 
         # ── QoS ───────────────────────────────────────────────────────────
         reliable_qos = QoSProfile(
@@ -193,6 +200,8 @@ class CoordinatorNode(Node):
             stop_msg = Twist()
             self._cmd_vel_pub.publish(stop_msg)
         self._cancel_nav_goal()
+        # Any goal pose buffered from a prior command cycle is now stale.
+        self._pending_goal_pose = None
         self._set_exploration(False)
         self._set_mode(Mode.SEMANTIC_QUERYING)
 
@@ -212,6 +221,12 @@ class CoordinatorNode(Node):
                 % (msg.object_id, msg.semantic_name,
                    msg.position.x, msg.position.y)
             )
+            if self._pending_goal_pose is not None:
+                pending = self._pending_goal_pose
+                self._pending_goal_pose = None
+                self.get_logger().info(
+                    "[nav2] Dispatching goal pose that arrived before mode switch")
+                self._dispatch_goal_pose(pending)
         else:
             self.get_logger().warn("Query failed: %s" % msg.status_message)
             self._set_mode(Mode.TARGET_FAILED)
@@ -220,8 +235,18 @@ class CoordinatorNode(Node):
 
     def _goal_pose_cb(self, msg: PoseStamped) -> None:
         if self._mode != Mode.SEMANTIC_NAV:
+            # nav_goal_adapter_node reacts to the same selected_target
+            # message we do, in a separate process — it can win the race
+            # and publish before our own _query_result_cb has set
+            # SEMANTIC_NAV. Buffer it rather than dropping it; only valid
+            # while a query is actually in flight (SEMANTIC_QUERYING).
+            if self._mode == Mode.SEMANTIC_QUERYING:
+                self._pending_goal_pose = msg
             return
 
+        self._dispatch_goal_pose(msg)
+
+    def _dispatch_goal_pose(self, msg: PoseStamped) -> None:
         self._publish_status(
             "goal pose received: (%.2f, %.2f) in %s — sending to Nav2"
             % (msg.pose.position.x, msg.pose.position.y, msg.header.frame_id)
