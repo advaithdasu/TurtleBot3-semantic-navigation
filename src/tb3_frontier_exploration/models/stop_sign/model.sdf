@@ -1,0 +1,51 @@
+<?xml version="1.0" ?>
+<!--
+  stop_sign — vendored from osrf/gazebo_models (see model.config).
+
+  Gazebo Classic pulled this from its online model database on demand;
+  gz-sim has no such fallback, so it is checked in here and resolved
+  through GZ_SIM_RESOURCE_PATH.
+
+  Ported for gz-sim: upstream's <material><script> referenced an Ogre
+  .material file (StopSign/Diffuse), which gz-sim does not read, and
+  stop_sign.dae carries no embedded texture — without this the sign would
+  render untextured grey and never read as a stop sign to YOLO. The
+  diffuse texture is applied as a PBR albedo map. Upstream's second
+  material (StopSign/Specular, StopSign_Spec.png) is not vendored: it was
+  never referenced by model.sdf.
+
+  Note: "stop sign" is currently absent from tb3_detector's class_filter,
+  and the include in warehouse_semantic_models.world is commented out.
+  Only detector_test.world still spawns this model.
+-->
+<sdf version="1.6">
+  <model name="stop_sign">
+    <static>true</static>
+    <link name="link">
+      <collision name="collision">
+        <geometry>
+          <mesh>
+            <uri>model://stop_sign/meshes/stop_sign.dae</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>model://stop_sign/meshes/stop_sign.dae</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <diffuse>1 1 1 1</diffuse>
+          <pbr>
+            <metal>
+              <albedo_map>model://stop_sign/materials/textures/StopSign_Diffuse.png</albedo_map>
+              <metalness>0.0</metalness>
+              <roughness>0.8</roughness>
+            </metal>
+          </pbr>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>

@@ -1,6 +1,6 @@
 <?xml version="1.0" ?>
 <!--
-  detector_test.world — Minimal Gazebo Classic world for Stage-1/2 perception testing.
+  detector_test.world — Minimal gz-sim world for Stage-1/2 perception testing.
   Purpose: YOLOv8 detector + LiDAR-camera localizer validation.
            No SLAM, no Nav2, no warehouse walls.
 
@@ -44,20 +44,75 @@
 <sdf version="1.6">
   <world name="detector_test">
 
+    <!-- gz-sim system plugins. Gazebo Classic loaded physics, sensor
+         rendering and GUI transport implicitly; gz-sim requires each to be
+         declared per world. Without Sensors the camera and lidar publish
+         nothing, without SceneBroadcaster the GUI shows an empty scene, and
+         without UserCommands the `gz service .../set_pose` teleports that
+         grounding/eval/capture_frames.py issues are silently dropped. -->
+    <plugin filename="gz-sim-physics-system"
+            name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system"
+            name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system"
+            name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-sensors-system"
+            name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="gz-sim-imu-system"
+            name="gz::sim::systems::Imu"/>
+
     <!-- Directional sunlight — essential for texture-based YOLO detection -->
-    <include>
-      <uri>model://sun</uri>
-    </include>
+    <light name="sun" type="directional">
+      <cast_shadows>false</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <attenuation>
+        <range>1000</range>
+        <constant>0.9</constant>
+        <linear>0.01</linear>
+        <quadratic>0.001</quadratic>
+      </attenuation>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
 
     <!-- Flat infinite ground plane -->
-    <include>
-      <uri>model://ground_plane</uri>
-    </include>
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
+            </plane>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>0.8 0.8 0.8 1</ambient>
+            <diffuse>0.8 0.8 0.8 1</diffuse>
+            <specular>0.8 0.8 0.8 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
 
-    <!-- Physics: real-time stable -->
-    <physics type="ode">
-      <real_time_factor>1.0</real_time_factor>
+    <!-- Physics: 1 ms steps, real time. The previous 2 ms / 500 Hz
+         setting was a Rosetta concession; native arm64 has the CPU budget
+         for upstream TurtleBot3's step size, which keeps the wheel
+         contact solve stable. -->
+    <physics name="default_physics" type="dart">
       <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
     </physics>
 
     <!-- Bright scene for camera-based detection -->

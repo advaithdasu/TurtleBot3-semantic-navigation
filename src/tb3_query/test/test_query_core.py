@@ -7,7 +7,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from tb3_query.query_core import parse_command  # noqa: E402
 
-KNOWN = {"person", "table", "stop_sign", "sofa"}
+KNOWN = {"person", "table", "stop_sign", "sofa", "chair", "box"}
 
 
 def test_plain_command_has_no_expression():
@@ -67,3 +67,46 @@ def test_index_wins_over_expression_flagging():
     assert p.semantic_name == "person"
     assert p.desired_index == 2
     assert p.attribute_expression == "person with red shirt"
+
+
+def test_plain_chair():
+    p = parse_command("go to the chair", KNOWN)
+    assert p is not None
+    assert p.semantic_name == "chair"
+    assert p.desired_index is None
+    assert p.attribute_expression is None
+
+
+def test_blue_chair_attribute():
+    p = parse_command("find the blue chair", KNOWN)
+    assert p is not None
+    assert p.semantic_name == "chair"
+    assert p.attribute_expression == "blue chair"
+
+
+def test_plain_box():
+    p = parse_command("go to the box", KNOWN)
+    assert p is not None
+    assert p.semantic_name == "box"
+    assert p.desired_index is None
+    assert p.attribute_expression is None
+
+
+def test_suitcase_alias_maps_to_box():
+    p = parse_command("go to the suitcase", KNOWN)
+    assert p is not None
+    assert p.semantic_name == "box"
+    assert p.attribute_expression is None
+
+
+def test_spatial_phrase_survives_filler_strip():
+    # The grounding backend needs multi-word spatial phrases verbatim.
+    # "on", "top", "of" are not in the filler lists; only articles
+    # ("the") and command verbs are stripped from the expression.
+    p = parse_command("the blue box on top of the orange sofa", KNOWN)
+    assert p is not None
+    assert p.semantic_name == "box"
+    assert p.attribute_expression is not None
+    assert "blue" in p.attribute_expression
+    assert "on top of" in p.attribute_expression
+    assert p.attribute_expression == "blue box on top of orange sofa"

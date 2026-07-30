@@ -46,7 +46,7 @@ try:
     from cv_bridge import CvBridge
 except ImportError as e:
     raise ImportError(
-        "cv_bridge not found. Install ros-humble-cv-bridge.\n"
+        "cv_bridge not found. Install ros-jazzy-cv-bridge.\n"
         f"Original error: {e}"
     )
 
@@ -67,7 +67,7 @@ class _PendingObservation:
     image_height: int
     jpeg_bytes: bytes
     stamp_sec: float
-    wall_time: float
+    enqueue_time: float   # node-clock seconds (sim time under use_sim_time)
 
 
 class EvidenceStoreNode(Node):
@@ -114,7 +114,7 @@ class EvidenceStoreNode(Node):
         self._bridge = CvBridge()
 
         self._buf_size = int(buf_size)
-        self._frames: OrderedDict[tuple, object] = OrderedDict()      # stamp -> bgr
+        self._frames: OrderedDict[tuple, Image] = OrderedDict()       # stamp -> raw Image msg
         self._det2d: OrderedDict[tuple, list] = OrderedDict()         # stamp -> dets
         self._landmarks: dict[str, tuple[str, float, float]] = {}     # id -> (label, x, y)
         self._pending: deque[_PendingObservation] = deque(maxlen=int(pending_max))
@@ -154,12 +154,10 @@ class EvidenceStoreNode(Node):
         return (stamp.sec, stamp.nanosec)
 
     def _image_cb(self, msg: Image) -> None:
-        try:
-            bgr = self._bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
-        except Exception as e:
-            self.get_logger().warning("cv_bridge conversion failed: %s" % e)
-            return
-        self._frames[self._key(msg.header.stamp)] = bgr
+        # Buffer the raw message as-is: cv2 conversion is deferred to
+        # _localized_cb (already throttled), so it only runs for the one
+        # stamp actually matched instead of every camera frame.
+        self._frames[self._key(msg.header.stamp)] = msg
         while len(self._frames) > self._buf_size:
             self._frames.popitem(last=False)
 
@@ -190,9 +188,15 @@ class EvidenceStoreNode(Node):
         self._last_process = now
 
         key = self._key(msg.header.stamp)
-        frame = self._frames.get(key)
+        img_msg = self._frames.get(key)
         dets2d = self._det2d.get(key)
-        if frame is None or not dets2d:
+        if img_msg is None or not dets2d:
+            return
+
+        try:
+            frame = self._bridge.imgmsg_to_cv2(img_msg, desired_encoding="bgr8")
+        except Exception as e:
+            self.get_logger().warning("cv_bridge conversion failed: %s" % e)
             return
 
         img_h, img_w = frame.shape[:2]
@@ -237,7 +241,9 @@ class EvidenceStoreNode(Node):
                 image_height=img_h,
                 jpeg_bytes=jpeg_bytes,
                 stamp_sec=stamp_sec,
-                wall_time=_time.time(),
+                # Node clock (sim time under use_sim_time) so pending_ttl_sec
+                # means sim seconds regardless of RTF.
+                enqueue_time=self.get_clock().now().nanoseconds * 1e-9,
             )
 
             if not self._try_store(obs):
@@ -271,7 +277,10 @@ class EvidenceStoreNode(Node):
         try:
             out = self._tf_buffer.transform(
                 pt, self._frame, timeout=Duration(seconds=self._tf_tout))
-        except Exception:
+        except Exception as e:
+            self.get_logger().warning(
+                "TF transform %s -> %s failed: %s" % (source_frame, self._frame, e),
+                throttle_duration_sec=5.0)
             return None
         return out.point.x, out.point.y
 
@@ -330,10 +339,10 @@ class EvidenceStoreNode(Node):
         # buffered observations get another chance on each snapshot.
         if not self._pending:
             return
-        now = _time.time()
+        now = self.get_clock().now().nanoseconds * 1e-9
         keep: deque[_PendingObservation] = deque(maxlen=self._pending.maxlen)
         for obs in self._pending:
-            if now - obs.wall_time > self._pend_ttl:
+            if now - obs.enqueue_time > self._pend_ttl:
                 continue
             if not self._try_store(obs):
                 keep.append(obs)

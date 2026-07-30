@@ -268,7 +268,7 @@ tb3_localizer/
 
 ```bash
 cd ~/TurtleBot3-semantic-navigation
-source /opt/ros/humble/setup.bash
+source /opt/ros/jazzy/setup.bash
 source install/setup.bash
 export TURTLEBOT3_MODEL=waffle_pi
 ros2 launch tb3_frontier_exploration detector_test_sim.launch.py
@@ -278,7 +278,7 @@ ros2 launch tb3_frontier_exploration detector_test_sim.launch.py
 
 ```bash
 cd ~/TurtleBot3-semantic-navigation
-source /opt/ros/humble/setup.bash
+source /opt/ros/jazzy/setup.bash
 source install/setup.bash
 ros2 launch tb3_detector detector.launch.py use_sim_time:=true
 ```
@@ -287,7 +287,7 @@ ros2 launch tb3_detector detector.launch.py use_sim_time:=true
 
 ```bash
 cd ~/TurtleBot3-semantic-navigation
-source /opt/ros/humble/setup.bash
+source /opt/ros/jazzy/setup.bash
 source install/setup.bash
 ros2 launch tb3_localizer localizer.launch.py use_sim_time:=true
 ```
@@ -295,7 +295,7 @@ ros2 launch tb3_localizer localizer.launch.py use_sim_time:=true
 ### 4. Inspect localized object points
 
 ```bash
-source /opt/ros/humble/setup.bash
+source /opt/ros/jazzy/setup.bash
 source ~/TurtleBot3-semantic-navigation/install/setup.bash
 ros2 topic echo /localizer_node/object_points
 ```

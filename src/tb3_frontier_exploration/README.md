@@ -15,7 +15,7 @@ TurtleBot3 custom frontier-based autonomous exploration package (Phase 2).
 
 ## Dependencies
 
-ROS2 Humble, Nav2, slam_toolbox (or map source). See `package.xml` for message/action dependencies.
+ROS 2 Jazzy, Nav2, slam_toolbox (or map source). See `package.xml` for message/action dependencies.
 
 ## Config
 

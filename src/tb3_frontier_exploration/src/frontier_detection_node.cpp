@@ -72,7 +72,10 @@ public:
     declare_parameter<std::string>("frontiers_markers_topic", "/frontiers_markers");
     declare_parameter<std::string>("frame_id", "map");
     declare_parameter<int>("min_cluster_size", 5);
-    declare_parameter<int>("cost_threshold", 128);
+    // OccupancyGrid costs are 0–100 (lethal=100); unknown -1 reads back as 255
+    // through the unsigned-char cast in getCostAtWorldWithIndices. 65 stays
+    // below Nav2's inflated/lethal band.
+    declare_parameter<int>("cost_threshold", 65);
     declare_parameter<bool>("use_costmap_filter", true);
     declare_parameter<bool>("publish_raw_markers", true);
     declare_parameter<bool>("publish_rejected_markers", true);
@@ -320,11 +323,7 @@ private:
 
   /**
    * @brief Sample the latest global costmap at world coordinates and expose the grid indices used.
-   *cd ~/TurtleBot3-semantic-navigation
-source /opt/ros/humble/setup.bash
-source install/setup.bash
-
-ros2 launch tb3_frontier_exploration exploration.launch.py use_sim_time:=true
+   *
    * @param wx World x (meters) in the costmap’s frame.
    * @param wy World y (meters) in the costmap’s frame.
    * @param out_mx Output: computed grid column before clamping (may be outside [0,width) if OOB).
@@ -495,12 +494,14 @@ ros2 launch tb3_frontier_exploration exploration.launch.py use_sim_time:=true
         FRONTIER_LOG("[frontier] 8. candidate[%zu] ACCEPTED (no filter or cost<0)", i);
         continue;
       }
-      if (cost <= cost_threshold) {
-        safe_centroids.push_back(c); 
+      // Defense in depth: treat >= 99 as lethal even if cost_threshold is
+      // configured above the lethal band.
+      if (cost <= cost_threshold && cost < 99) {
+        safe_centroids.push_back(c);
         FRONTIER_LOG("[frontier] 8. candidate[%zu] ACCEPTED (cost %d <= threshold %d)", i, cost, cost_threshold);
       } else {
         rejected_centroids.push_back(c);
-        FRONTIER_LOG("[frontier] 8. candidate[%zu] REJECTED (cost %d > threshold %d)", i, cost, cost_threshold);
+        FRONTIER_LOG("[frontier] 8. candidate[%zu] REJECTED (cost %d > threshold %d or lethal)", i, cost, cost_threshold);
       }
     }
 

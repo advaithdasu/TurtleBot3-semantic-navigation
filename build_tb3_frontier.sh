@@ -11,7 +11,7 @@ cd "${SCRIPT_DIR}"
 # Force system Python first (must be before any other setup)
 export PATH="/usr/bin:${PATH}"
 if ! command -v python3 >/dev/null 2>&1; then
-  echo "Error: python3 not found in /usr/bin. Install ROS Humble or set PATH."
+  echo "Error: python3 not found in /usr/bin. Install ROS Jazzy or set PATH."
   exit 1
 fi
 echo "Using python3: $(which python3)"
@@ -19,7 +19,7 @@ echo "Using python3: $(which python3)"
 # Remove cached build so CMake does not reuse Miniconda's python path
 rm -rf build/tb3_frontier_exploration install/tb3_frontier_exploration
 
-source /opt/ros/humble/setup.bash
+source /opt/ros/jazzy/setup.bash
 # Keep system Python first after ROS setup (ROS setup can change PATH)
 export PATH="/usr/bin:${PATH}"
 

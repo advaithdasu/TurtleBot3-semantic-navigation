@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build ROS2 workspace (Humble). Uses system Python to avoid conda 'em' module errors.
+# Build ROS2 workspace (Jazzy). Uses system Python to avoid conda 'em' module errors.
 
 set -e
 
@@ -14,7 +14,7 @@ echo ""
 export PATH="/usr/bin:${PATH}"
 export Python3_EXECUTABLE="/usr/bin/python3"
 
-source /opt/ros/humble/setup.bash
+source /opt/ros/jazzy/setup.bash
 
 # Marker used to detect that the workspace has been built with system Python
 # (kept for parity with the original project; currently no msg packages need

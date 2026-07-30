@@ -1,0 +1,55 @@
+<?xml version="1.0" ?>
+<!--
+  table_marble — vendored from osrf/gazebo_models (see model.config).
+
+  Gazebo Classic pulled this from its online model database on demand;
+  gz-sim has no such fallback, so it is checked in here and resolved
+  through GZ_SIM_RESOURCE_PATH.
+
+  Ported for gz-sim: upstream's <material><script> referenced an Ogre
+  .material file (Table/Marble_Lightmap), which gz-sim does not read. The
+  marble texture is applied as a PBR albedo map instead. Upstream layered
+  a second texture_unit (table_lightmap.png) as a baked ambient-occlusion
+  pass — that layer is dropped, since gz-sim's PBR lighting supersedes it;
+  table_lightmap.png is still vendored because the DAE itself references
+  it. Also fixes the upstream "model:///" typo in the collision URI.
+
+  This is the model the detector sees as COCO class "bench" (see
+  tb3_detector/config/detector.yaml); the mesh is unchanged, so that
+  mapping still holds.
+-->
+<sdf version="1.6">
+  <model name="table_marble">
+    <static>true</static>
+    <pose>0 0 0.648 0 0 0</pose>
+    <link name="link">
+      <collision name="collision">
+        <geometry>
+          <mesh>
+            <uri>model://table_marble/meshes/table_lightmap.dae</uri>
+            <scale>0.25 0.25 0.25</scale>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>model://table_marble/meshes/table_lightmap.dae</uri>
+            <scale>0.25 0.25 0.25</scale>
+          </mesh>
+        </geometry>
+        <material>
+          <diffuse>1 1 1 1</diffuse>
+          <specular>0.2 0.2 0.2 1</specular>
+          <pbr>
+            <metal>
+              <albedo_map>model://table_marble/materials/textures/marble.png</albedo_map>
+              <metalness>0.0</metalness>
+              <roughness>0.5</roughness>
+            </metal>
+          </pbr>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>

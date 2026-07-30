@@ -4,8 +4,9 @@ services:
       context: .
       dockerfile: Dockerfile
     image: tb3-semantic-nav-sim
-    # Gazebo Classic packages are amd64-only.
-    platform: linux/amd64
+    # No `platform:` key — ROS 2 Jazzy and Gazebo Harmonic both ship arm64
+    # debs, so this builds and runs natively on Apple Silicon. Do not
+    # reintroduce linux/amd64: that is what forced Rosetta emulation.
     ports:
       - "6080:80"    # noVNC desktop
       - "8801:8801"  # grounding server
@@ -18,7 +19,8 @@ services:
     shm_size: "1gb"
     environment:
       - RESOLUTION=1600x900
-      # gzserver needs an X display for camera rendering.
+      # gz-sim's Sensors system renders camera frames through OGRE, which
+      # needs an X display even when the server runs headless (`-s`).
       - DISPLAY=:1
 
   grounding:

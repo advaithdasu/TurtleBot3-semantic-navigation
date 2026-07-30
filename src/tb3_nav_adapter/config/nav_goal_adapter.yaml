@@ -7,11 +7,15 @@
 nav_goal_adapter_node:
   ros__parameters:
     # ── Approach geometry ─────────────────────────────────
-    # How far from the target the robot should stop (metres).
-    approach_distance: 0.5
+    # Distances are measured from the OBJECT CENTER (landmark
+    # positions are object centers, e.g. sofa half-extent 0.43 m,
+    # chairs ~0.25 m), so the goal must clear the object body plus
+    # the costmap inflation halo.
+    # How far from the object center the robot should stop (metres).
+    approach_distance: 0.9
 
-    # Reject targets closer than this to avoid collisions (metres).
-    min_standoff_distance: 0.3
+    # Reject targets whose center is closer than this to the robot (metres).
+    min_standoff_distance: 0.6
 
     # ── Topics ────────────────────────────────────────────
     input_topic:  "/semantic_query_node/selected_target"

@@ -2,7 +2,7 @@
 full_semantic_nav.launch.py — One-command launch for the full semantic navigation stack.
 
 Composes:
-  1. Gazebo simulation (warehouse_semantic world)
+  1. Gazebo Harmonic simulation (warehouse_semantic world)
   2. SLAM Toolbox (online async)
   3. Nav2 navigation stack
   4. Frontier exploration (warmup + frontier detection + goal assignment)
@@ -79,12 +79,53 @@ WORLD_PRESETS = {
         "default_x": "-1.2",
         "default_y": "-1.2",
     },
+    "warehouse_aws": {
+        "file":      "warehouse_aws_semantic.world",
+        # Clear spawn zone: nearest furniture 1.9 m, west wall 1.0 m —
+        # outside Nav2's 0.55 m inflation radius. Layout table is in the
+        # world file header.
+        "default_x": "-3.0",
+        "default_y": "0.0",
+    },
 }
 
 # Used as the fallback when the user passes a custom world (absolute
 # path), since we have no way to know its valid spawn region.
 _FALLBACK_SPAWN_X = "-1.2"
 _FALLBACK_SPAWN_Y = "-1.2"
+
+
+# ── Staged startup delays (seconds after launch) ──────────────────────────
+#
+# Nav2 runs with autostart=True, so its lifecycle_manager walks every node
+# through configure()+activate() as soon as it starts. Two things make that
+# fragile if it begins too early:
+#
+#   1. global_costmap's static_layer blocks in configure() until /map
+#      arrives, so SLAM must be publishing first.
+#   2. More subtly, the lifecycle change_state calls are plain ROS services.
+#      If the machine is saturated when they fire, a reply can be dropped —
+#      the node configures fine but the manager never hears back and waits
+#      forever. Observed exactly this at T_NAV2=10:
+#        smoother_server: "failed to send response to
+#        /smoother_server/change_state (timeout)"
+#      leaving smoother_server 'inactive' and everything downstream
+#      'unconfigured', so no navigate_to_pose server ever appeared.
+#
+# gz-sim's mesh loading and SLAM's initialisation are the CPU spike, so
+# T_NAV2 is set well past them rather than overlapping. These values were
+# retuned for the native arm64 stack; the previous 10/15/18/20/23 ladder was
+# tuned against the emulated one, where the whole startup was stretched out
+# and the overlap happened to be less damaging.
+#
+# Ordering invariant: NAV2 < PERCEPTION <= MAP_MEMORY <= EVIDENCE_STORE
+#                     < EXPLORATION < COORDINATOR
+T_NAV2 = 25.0
+T_PERCEPTION = 40.0
+T_MAP_MEMORY = 42.0
+T_EVIDENCE_STORE = 43.0
+T_EXPLORATION = 50.0
+T_COORDINATOR = 55.0
 
 
 def generate_launch_description():
@@ -101,11 +142,7 @@ def generate_launch_description():
     pkg_coord = get_package_share_directory("tb3_coordinator")
     pkg_nav2 = get_package_share_directory("nav2_bringup")
 
-    # ── 1. Gazebo + TurtleBot3 ────────────────────────────────────────────
-    pkg_gazebo_ros = get_package_share_directory("gazebo_ros")
-    launch_tb3 = os.path.join(
-        get_package_share_directory("turtlebot3_gazebo"), "launch"
-    )
+    # ── 1. Gazebo Harmonic (gz-sim) + TurtleBot3 ──────────────────────────
     def make_gazebo_actions(context, *_args, **_kwargs):
         """Resolve `world:=...` and per-world spawn defaults, then build
         the Gazebo + TurtleBot3 launch actions accordingly.
@@ -157,48 +194,29 @@ def generate_launch_description():
         x_final = preset_x if x_raw == "AUTO" else x_raw
         y_final = preset_y if y_raw == "AUTO" else y_raw
 
-        gzserver = IncludeLaunchDescription(
+        # tb3_sim.launch.py owns the gz-sim server/GUI, the `ros_gz_sim
+        # create` spawn and the ros_gz bridges. The Rosetta-era duplicate
+        # spawn at t+60s is gone: it existed because spawn_entity timed out
+        # after 30s on emulated cold starts, which native arm64 does not hit.
+        sim = IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
-                os.path.join(pkg_gazebo_ros, "launch", "gzserver.launch.py")
+                os.path.join(pkg_fe, "launch", "tb3_sim.launch.py")
             ),
-            launch_arguments={"world": world_file}.items(),
+            launch_arguments={
+                "world": world_file,
+                "use_sim_time": use_sim_time,
+                "use_gzclient": LaunchConfiguration("use_gzclient"),
+                "x_pose": x_final,
+                "y_pose": y_final,
+            }.items(),
         )
-        use_gzclient = (
-            LaunchConfiguration("use_gzclient").perform(context).strip().lower()
-            not in ("false", "0", "no")
-        )
-        gzclient = IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(
-                os.path.join(pkg_gazebo_ros, "launch", "gzclient.launch.py")
-            ),
-        )
-        rsp = IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(
-                os.path.join(launch_tb3, "robot_state_publisher.launch.py")
-            ),
-            launch_arguments={"use_sim_time": use_sim_time}.items(),
-        )
-        def make_spawn():
-            return IncludeLaunchDescription(
-                PythonLaunchDescriptionSource(
-                    os.path.join(launch_tb3, "spawn_turtlebot3.launch.py")
-                ),
-                launch_arguments={"x_pose": x_final, "y_pose": y_final}.items(),
-            )
-
-        spawn = make_spawn()
-        # spawn_entity gives up after 30s; slow cold starts under emulation
-        # can exceed that. A duplicate spawn is harmless.
-        spawn_retry = TimerAction(period=60.0, actions=[make_spawn()])
 
         return [
             LogInfo(msg=(
                 f"[full_semantic_nav] world={raw!r} → {world_file} ;"
                 f" spawn=({x_final}, {y_final})"
             )),
-            gzserver,
-            *([gzclient] if use_gzclient else []),
-            rsp, spawn, spawn_retry,
+            sim,
         ]
 
     # ── 2. Nav2 + SLAM (integrated) ─────────────────────────────────────
@@ -207,8 +225,14 @@ def generate_launch_description():
     # Nav2 bringup: slam=True makes it launch slam_toolbox internally.
     # map arg is required even with slam=True; provide a dummy path that won't be loaded.
     # params_file must be explicit to avoid empty-path errors from ParameterFile.
-    dummy_map = os.path.join(pkg_nav2, "maps", "turtlebot3_world.yaml")
-    nav2_params = os.path.join(pkg_nav2, "params", "nav2_params.yaml")
+    # Jazzy's nav2_bringup ships warehouse/depot/tb3_sandbox maps; the
+    # Humble-era turtlebot3_world.yaml is gone. Any real path works since
+    # slam:=True means map_server never loads it.
+    dummy_map = os.path.join(pkg_nav2, "maps", "tb3_sandbox.yaml")
+    # Vendored Jazzy stock params with warehouse tuning (inflation, DWB
+    # instead of MPPI, lidar ranges) plus a slam_toolbox section —
+    # nav2_bringup's slam launch reuses this same file as slam_params_file.
+    nav2_params = os.path.join(pkg_coord, "config", "nav2_params.yaml")
     # Mute the very noisy `worldToMap failed: mx,my: ...` ERROR that
     # planner_server prints whenever the costmap inflation samples one cell
     # past the static-map boundary. It is benign in Nav2 Humble (planning
@@ -355,32 +379,30 @@ def generate_launch_description():
             default_value="warehouse_models_person",
             description=(
                 "Gazebo world: alias (warehouse_models_person | "
-                "warehouse_models) or absolute path to a .world file."
+                "warehouse_models | warehouse_aws) or absolute path to "
+                "a .world file. warehouse_aws is the AWS-furnished 8x6 "
+                "room for query-time grounding evaluation."
             ),
         ),
 
         # Phase 1: simulation + navigation infrastructure
-        # Nav2 (autostart=True) needs Gazebo + SLAM to publish /map before
-        # planner_server can finish configure(); 10s is a safer buffer than 5s
-        # to absorb CPU jitter (otherwise lifecycle_manager hangs on
-        # "Waiting for service planner_server/get_state...").
         OpaqueFunction(function=make_gazebo_actions),
-        TimerAction(period=10.0, actions=[nav2]),
+        TimerAction(period=T_NAV2, actions=[nav2]),
 
         # Phase 2: exploration + perception (after Nav2 has time to start)
-        TimerAction(period=20.0, actions=[exploration]),
-        TimerAction(period=15.0, actions=[detector]),
-        TimerAction(period=15.0, actions=[localizer]),
-        TimerAction(period=15.0, actions=[memory]),
-        TimerAction(period=15.0, actions=[query]),
-        TimerAction(period=15.0, actions=[nav_adapter]),
-        TimerAction(period=18.0, actions=[evidence_store]),
+        TimerAction(period=T_EXPLORATION, actions=[exploration]),
+        TimerAction(period=T_PERCEPTION, actions=[detector]),
+        TimerAction(period=T_PERCEPTION, actions=[localizer]),
+        TimerAction(period=T_PERCEPTION, actions=[memory]),
+        TimerAction(period=T_PERCEPTION, actions=[query]),
+        TimerAction(period=T_PERCEPTION, actions=[nav_adapter]),
+        TimerAction(period=T_EVIDENCE_STORE, actions=[evidence_store]),
 
         # Phase 3: coordinator (after everything else is up)
-        TimerAction(period=23.0, actions=[coordinator]),
+        TimerAction(period=T_COORDINATOR, actions=[coordinator]),
 
         # Persistent semantic map memory + RViz visualization
-        TimerAction(period=17.0, actions=[
+        TimerAction(period=T_MAP_MEMORY, actions=[
             Node(
                 package="tb3_coordinator",
                 executable="semantic_map_memory_node",
@@ -401,7 +423,7 @@ def generate_launch_description():
         # Runtime debug diagnostics (gated by use_runtime_debug arg)
         DeclareLaunchArgument("use_runtime_debug", default_value="false",
                               description="Launch semantic runtime debug node"),
-        TimerAction(period=17.0, actions=[
+        TimerAction(period=T_MAP_MEMORY, actions=[
             Node(
                 package="tb3_coordinator",
                 executable="semantic_runtime_debug_node",

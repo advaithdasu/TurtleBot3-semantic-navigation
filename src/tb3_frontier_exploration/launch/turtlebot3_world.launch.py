@@ -5,8 +5,12 @@ tb3_frontier_exploration did not ship this file before; use this when you want
 ``ros2 launch tb3_frontier_exploration turtlebot3_world.launch.py`` instead of
 invoking turtlebot3_gazebo by package name.
 
-Actual sim stack lives in turtlebot3_gazebo (turtlebot3_world.world).
-Requires: gazebo_ros, turtlebot3_gazebo. Set TURTLEBOT3_MODEL (e.g. waffle_pi).
+Actual sim stack lives in turtlebot3_gazebo (turtlebot3_world.world), which
+on Jazzy is Gazebo Harmonic based and brings up its own ros_gz bridges.
+Note that those bridges map /cmd_vel as TwistStamped, unlike this project's
+worlds — see launch/tb3_sim.launch.py.
+
+Requires: ros_gz_sim, turtlebot3_gazebo. Set TURTLEBOT3_MODEL (e.g. waffle_pi).
 """
 import os
 

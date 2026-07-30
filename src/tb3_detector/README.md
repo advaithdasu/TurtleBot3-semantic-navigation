@@ -217,7 +217,7 @@ The main detector parameters live in `config/detector.yaml`.
 - list of detector labels to keep
 - use detector labels, not semantic names
 - use `[""]` to accept all classes
-- do **not** use bare `[]` in this project, because ROS 2 Humble parameter type inference can mis-handle it
+- do **not** use bare `[]` in this project, because rclpy parameter type inference can mis-handle it
 
 ### `publish_debug_image`
 
@@ -263,7 +263,7 @@ If the file is missing, startup will fail with a clear `FileNotFoundError`.
 ## Dependencies
 
 ```bash
-sudo apt install ros-humble-vision-msgs ros-humble-cv-bridge
+sudo apt install ros-jazzy-vision-msgs ros-jazzy-cv-bridge
 pip install ultralytics
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 pip install opencv-python-headless
@@ -273,7 +273,7 @@ pip install opencv-python-headless
 
 ```bash
 cd ~/TurtleBot3-semantic-navigation
-source /opt/ros/humble/setup.bash
+source /opt/ros/jazzy/setup.bash
 colcon build --packages-select tb3_detector
 source install/setup.bash
 ```
@@ -284,7 +284,7 @@ source install/setup.bash
 
 ```bash
 cd ~/TurtleBot3-semantic-navigation
-source /opt/ros/humble/setup.bash
+source /opt/ros/jazzy/setup.bash
 source install/setup.bash
 export TURTLEBOT3_MODEL=waffle_pi
 ros2 launch tb3_frontier_exploration detector_test_sim.launch.py
@@ -294,7 +294,7 @@ ros2 launch tb3_frontier_exploration detector_test_sim.launch.py
 
 ```bash
 cd ~/TurtleBot3-semantic-navigation
-source /opt/ros/humble/setup.bash
+source /opt/ros/jazzy/setup.bash
 source install/setup.bash
 ros2 launch tb3_detector detector.launch.py use_sim_time:=true
 ```
@@ -311,7 +311,7 @@ ros2 launch tb3_detector detector.launch.py \
 ### 3. Echo detections
 
 ```bash
-source /opt/ros/humble/setup.bash
+source /opt/ros/jazzy/setup.bash
 source ~/TurtleBot3-semantic-navigation/install/setup.bash
 ros2 topic echo /detector_node/detections
 ```
@@ -321,14 +321,14 @@ ros2 topic echo /detector_node/detections
 Open the raw camera image:
 
 ```bash
-source /opt/ros/humble/setup.bash
+source /opt/ros/jazzy/setup.bash
 ros2 run rqt_image_view rqt_image_view /camera/image_raw
 ```
 
 Open the detector debug image:
 
 ```bash
-source /opt/ros/humble/setup.bash
+source /opt/ros/jazzy/setup.bash
 ros2 run rqt_image_view rqt_image_view /detector_node/debug_image
 ```
 

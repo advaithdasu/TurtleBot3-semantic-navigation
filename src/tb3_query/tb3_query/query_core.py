@@ -119,6 +119,7 @@ _PHRASE_ALIASES: dict[str, str] = {
     "bench": "table",
     "stop sign": "stop_sign",
     "couch": "sofa",
+    "suitcase": "box",
 }
 
 

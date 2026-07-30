@@ -11,7 +11,7 @@
 
 ```bash
 cd ~/TurtleBot3-semantic-navigation
-source /opt/ros/humble/setup.bash
+source /opt/ros/jazzy/setup.bash
 colcon build --packages-select tb3_frontier_exploration
 source install/setup.bash
 ```

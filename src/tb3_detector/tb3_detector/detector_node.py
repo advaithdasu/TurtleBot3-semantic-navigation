@@ -32,10 +32,12 @@ Parameters
   detections_topic        str   "~/detections"
   debug_image_topic       str   "~/debug_image"
   queue_size              int   5
+  min_inference_interval_sec  float 0.2  (min seconds between YOLO inferences)
 """
 
 from __future__ import annotations
 import os
+import time as _time
 from pathlib import Path
 
 import rclpy
@@ -51,7 +53,7 @@ try:
     from cv_bridge import CvBridge
 except ImportError as e:
     raise ImportError(
-        "cv_bridge not found. Install ros-humble-cv-bridge.\n"
+        "cv_bridge not found. Install ros-jazzy-cv-bridge.\n"
         f"Original error: {e}"
     )
 
@@ -149,12 +151,13 @@ class DetectorNode(Node):
         self.declare_parameter("detections_topic", "~/detections")
         self.declare_parameter("debug_image_topic", "~/debug_image")
         self.declare_parameter("queue_size", 5)
+        self.declare_parameter("min_inference_interval_sec", 0.2)
 
         model_path_raw = self.get_parameter("model_path").get_parameter_value().string_value
         conf           = self.get_parameter("conf_threshold").get_parameter_value().double_value
         device         = self.get_parameter("device").get_parameter_value().string_value
 
-        # rclpy Humble cannot infer a type from a bare `[]` in YAML, which leaves the
+        # rclpy cannot infer a type from a bare `[]` in YAML, which leaves the
         # parameter as PARAMETER_NOT_SET even though declare_parameter provided a default.
         # Guard with a fallback so `class_filter: []` and `class_filter: [""]` both mean
         # "no filter / accept all classes".
@@ -169,6 +172,8 @@ class DetectorNode(Node):
         det_topic      = self.get_parameter("detections_topic").get_parameter_value().string_value
         dbg_topic      = self.get_parameter("debug_image_topic").get_parameter_value().string_value
         queue          = self.get_parameter("queue_size").get_parameter_value().integer_value
+        self._min_inf_dt = self.get_parameter("min_inference_interval_sec").get_parameter_value().double_value
+        self._last_infer = 0.0
 
         # Resolve model path: allow relative (to share dir) or absolute
         model_path = self._resolve_model_path(model_path_raw)
@@ -203,15 +208,28 @@ class DetectorNode(Node):
             durability=DurabilityPolicy.VOLATILE,
             depth=queue,
         )
+        # Depth 1 for the image stream: inference is far slower than the camera
+        # rate, and a deeper queue would make the callback grind through stale
+        # frames back-to-back, maximizing latency. Keep only the newest frame.
+        image_qos = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            durability=DurabilityPolicy.VOLATILE,
+            depth=1,
+        )
         reliable_qos = QoSProfile(
             reliability=ReliabilityPolicy.RELIABLE,
             durability=DurabilityPolicy.VOLATILE,
             depth=queue,
         )
+        debug_qos = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            durability=DurabilityPolicy.VOLATILE,
+            depth=1,
+        )
 
         # ── Subscriptions ──────────────────────────────────────────────────
         self._image_sub = self.create_subscription(
-            Image, image_topic, self._image_callback, sensor_qos
+            Image, image_topic, self._image_callback, image_qos
         )
         self._info_sub = self.create_subscription(
             CameraInfo, info_topic, self._camera_info_callback, sensor_qos
@@ -221,7 +239,7 @@ class DetectorNode(Node):
         # ── Publishers ─────────────────────────────────────────────────────
         self._det_pub = self.create_publisher(Detection2DArray, det_topic, reliable_qos)
         if self._pub_debug:
-            self._dbg_pub = self.create_publisher(Image, dbg_topic, reliable_qos)
+            self._dbg_pub = self.create_publisher(Image, dbg_topic, debug_qos)
         else:
             self._dbg_pub = None
 
@@ -240,6 +258,13 @@ class DetectorNode(Node):
 
     def _image_callback(self, msg: Image) -> None:
         """Main callback: convert → infer → publish."""
+        # Throttle: CPU inference cannot keep up with the camera rate, so
+        # drop frames delivered sooner than min_inference_interval_sec.
+        now = _time.monotonic()
+        if now - self._last_infer < self._min_inf_dt:
+            return
+        self._last_infer = now
+
         try:
             bgr = self._bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
         except Exception as e:
@@ -265,7 +290,8 @@ class DetectorNode(Node):
             self.get_logger().debug("Detected: %s" % labels)
 
         # ── Publish debug image ─────────────────────────────────────────
-        if self._dbg_pub is not None:
+        # Skip draw/convert/publish entirely when nobody is watching.
+        if self._dbg_pub is not None and self._dbg_pub.get_subscription_count() > 0:
             vis = _draw_detections(bgr, detections) if detections else bgr
             try:
                 dbg_msg = self._bridge.cv2_to_imgmsg(vis, encoding="bgr8")

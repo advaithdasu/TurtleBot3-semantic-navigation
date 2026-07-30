@@ -30,6 +30,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
 from rclpy.duration import Duration
+from rclpy.time import Time
 
 from geometry_msgs.msg import PoseStamped, PointStamped
 
@@ -106,13 +107,40 @@ class NavGoalAdapterNode(Node):
         ty = msg.position.y
         source_frame = msg.frame_id or "base_link"
 
+        # ── Robot pose in the target's frame (map → base_link) ────────
+        # The approach math needs the robot's current position in the
+        # same frame as the target; do NOT fall back to origin-relative
+        # math if TF is unavailable.
+        try:
+            tf = self._tf_buffer.lookup_transform(
+                source_frame,
+                "base_link",
+                Time(),
+                timeout=Duration(seconds=self._tf_timeout),
+            )
+        except (
+            tf2_ros.LookupException,
+            tf2_ros.ConnectivityException,
+            tf2_ros.ExtrapolationException,
+        ) as e:
+            self.get_logger().warn(
+                "TF %s→base_link unavailable (%s), skipping goal for %s"
+                % (source_frame, e, msg.object_id),
+                throttle_duration_sec=5.0,
+            )
+            return
+
+        rx = tf.transform.translation.x
+        ry = tf.transform.translation.y
+
         result = compute_approach_pose(
-            tx, ty, self._approach_dist, self._min_standoff
+            tx, ty, rx, ry, self._approach_dist, self._min_standoff
         )
 
         if result is None:
             self.get_logger().warn(
-                "Target %s too close (%.2fm), skipping goal" % (msg.object_id, (tx**2 + ty**2)**0.5)
+                "Target %s too close (%.2fm), skipping goal"
+                % (msg.object_id, ((tx - rx) ** 2 + (ty - ry) ** 2) ** 0.5)
             )
             return
 

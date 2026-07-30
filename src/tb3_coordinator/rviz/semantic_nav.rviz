@@ -101,7 +101,7 @@ Visualization Manager:
       Value: true
       Topic:
         Value: /detector_node/debug_image
-        Reliability Policy: Reliable
+        Reliability Policy: Best Effort
       Max Value: 1
       Median window: 5
       Min Value: 0
