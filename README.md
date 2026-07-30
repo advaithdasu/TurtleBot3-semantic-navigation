@@ -4,7 +4,7 @@ Standalone extraction of the TurtleBot3 semantic navigation stack: YOLOv8n objec
 camera–LiDAR object localization, persistent semantic landmarks on a SLAM map, and Nav2 goal
 execution driven by simple rule-based text commands (e.g. `go to person`, `go to bench`).
 
-**Stack:** Ubuntu 22.04 · ROS 2 Humble · Gazebo Classic · TurtleBot3 `waffle_pi` · YOLOv8n · Nav2 · SLAM Toolbox launched through `nav2_bringup` with `slam:=True`.
+**Stack:** Ubuntu 24.04 · ROS 2 Jazzy · Gazebo Harmonic · TurtleBot3 `waffle_pi` · YOLOv8n · Nav2 · SLAM Toolbox launched through `nav2_bringup` with `slam:=True`.
 
 ## Project Highlights
 
@@ -58,7 +58,7 @@ Full demo: [Google Drive](https://drive.google.com/file/d/1Qzl15Erv7ww3lYTszrFD-
 
 ```text
    ┌──────────────────────────────────────────────────────────┐
-   │   Gazebo Classic + TurtleBot3 Waffle Pi simulation       │
+   │   Gazebo Harmonic + TurtleBot3 Waffle Pi simulation      │
    │   (custom 4×6 / 6×6 warehouse worlds)                    │
    └──────────┬─────────────────────────────────┬─────────────┘
               │ /camera/image_raw               │ /scan
@@ -147,18 +147,21 @@ The simulated TurtleBot3 streams a forward RGB image and a 360° LiDAR scan into
 
 ### Running on Apple Silicon (Docker)
 
-Gazebo Classic has no native macOS build, and no arm64 Linux binaries
-either (Ubuntu jammy doesn't package it; the ROS repo builds
-`gazebo-ros-pkgs` and `turtlebot3-gazebo` for amd64 only). The compose
-setup therefore pins the sim container to `linux/amd64`, which Docker
-Desktop runs under Rosetta 2 on M-series Macs. Enable it first:
-Docker Desktop → Settings → General → "Use Rosetta for x86_64/amd64
-emulation on Apple Silicon" (without it, containers fall back to QEMU,
-which is much slower and was unstable with gzserver in testing). The
-desktop (Gazebo GUI, RViz) is served to your browser through noVNC.
-gzserver needs an X display for camera rendering even without the GUI
-client; the compose file sets `DISPLAY=:1` (the VNC display) so both
-desktop terminals and `docker exec` shells work.
+The sim container runs **natively on arm64** — there is no `platform:`
+key in `docker/compose.yaml` and no Rosetta involved. That is the reason
+this project is on Jazzy + Gazebo Harmonic rather than Humble + Gazebo
+Classic: Classic has no arm64 Linux binaries at all, so the old image had
+to be pinned `linux/amd64` and translated. Harmonic ships arm64 debs, and
+Jazzy's `turtlebot3_gazebo` is already gz-sim based.
+
+If you previously enabled Docker Desktop → Settings → General → "Use
+Rosetta for x86_64/amd64 emulation on Apple Silicon" for this project, it
+is no longer needed here.
+
+The desktop (Gazebo GUI, RViz) is served to your browser through noVNC.
+gz-sim's `Sensors` system needs an X display to render camera frames even
+when the server runs headless; the compose file sets `DISPLAY=:1` (the VNC
+display) so both desktop terminals and `docker exec` shells work.
 
 ```bash
 docker compose -f docker/compose.yaml up -d --build
@@ -179,10 +182,11 @@ The compose file also starts the mock grounding server on
 commands like `go to the sofa with warm color` work out of the box.
 Pass `use_gzclient:=false use_rviz:=false` for headless runs.
 
-Rendering is software-only (llvmpipe) and the sim runs translated, so
-expect a reduced real-time factor with the full stack up. Note that an
-arm64 Ubuntu VM (UTM/Parallels) does not help here — the missing arm64
-Gazebo packages are the bottleneck, not the container.
+Physics, SLAM, Nav2 and YOLO all run at native speed now. Rendering is
+still software-only (llvmpipe) — Docker on macOS has no GPU passthrough —
+so the camera path remains the main brake on real-time factor. If you need
+more headroom, `use_gzclient:=false` is the single biggest win, since it
+drops a second software-rendered viewport.
 
 ### One-click start
 
@@ -380,7 +384,7 @@ section.
 
 ## My Contributions
 
-This project uses standard, well-known robotics components — ROS 2 Humble, Gazebo Classic, TurtleBot3, SLAM Toolbox, Nav2, and the Ultralytics YOLOv8n model. My contribution is the design and implementation of the integration layer that turns those components into a single working TurtleBot3 semantic-navigation pipeline.
+This project uses standard, well-known robotics components — ROS 2 Jazzy, Gazebo Harmonic, TurtleBot3, SLAM Toolbox, Nav2, and the Ultralytics YOLOv8n model. My contribution is the design and implementation of the integration layer that turns those components into a single working TurtleBot3 semantic-navigation pipeline.
 
 Specifically, I:
 
