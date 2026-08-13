@@ -25,16 +25,22 @@ def resolve_dtype(name: str, device: str):
     """Pick the compute dtype, defaulting to whatever the GPU can do.
 
     The model card specifies bfloat16, which needs Ampere (sm_80) or
-    newer. On Turing (sm_75 — RTX 20xx, T4) there is no native bf16, so
-    `auto` falls back to float16, which Turing does support natively and
-    with tensor cores.
+    newer for *native* support. On Turing (sm_75 — RTX 20xx, T4) bf16
+    still runs, but emulated and without tensor cores, so `auto` prefers
+    float16 there: Turing accelerates fp16 natively.
 
-    That fallback is not free: bf16 carries fp32's exponent range and
-    fp16 does not, so a model trained in bf16 can overflow to Inf/NaN in
-    fp16. It works often enough to be the right default, but if boxes
-    come back empty or nonsensical on a pre-Ampere card, suspect this
-    before suspecting the prompt — and compare against `--dtype float32`,
-    which is slow but numerically safe.
+    Do NOT use torch.cuda.is_bf16_supported() for this. Through at least
+    torch 2.3 it is written as `capability.major >= 8 OR cuda_version >=
+    11`, so on a CUDA 12 build it returns True for *every* card —
+    including a 2080 Ti, where bf16 is emulated. It answers "will bf16
+    run?", not "is bf16 fast?". Compute capability is the honest check.
+
+    The fp16 preference is a real tradeoff, not a free win: bf16 carries
+    fp32's exponent range and fp16 does not, so a bf16-trained model can
+    overflow to Inf/NaN in fp16. If boxes come back empty or nonsensical
+    on a pre-Ampere card, suspect this before suspecting the prompt —
+    `--dtype bfloat16` restores the model card's exact numerics at the
+    cost of speed, and `--dtype float32` is slower still but safest.
     """
     import torch
 
@@ -47,7 +53,11 @@ def resolve_dtype(name: str, device: str):
         return explicit[name]
 
     if device.startswith("cuda") and torch.cuda.is_available():
-        if torch.cuda.is_bf16_supported():
+        try:
+            major, _minor = torch.cuda.get_device_capability(device)
+        except (RuntimeError, AssertionError, ValueError):
+            major = 0
+        if major >= 8:          # Ampere and later: native bf16
             return torch.bfloat16
         return torch.float16
     # CPU: fp16 matmuls are largely unimplemented, so fp32 is the only
@@ -75,8 +85,10 @@ class LocateAnythingBackend:
 
         self._torch_dtype = resolve_dtype(self.dtype, self.device)
         if self.dtype == "auto" and self._torch_dtype is torch.float16:
-            print("[locate_anything] this GPU has no native bfloat16 "
-                  "(pre-Ampere); using float16 — see resolve_dtype()")
+            cap = torch.cuda.get_device_capability(self.device)
+            print(f"[locate_anything] compute capability {cap[0]}.{cap[1]} "
+                  "(pre-Ampere): bfloat16 would be emulated, using float16. "
+                  "Pass --dtype bfloat16 to match the model card exactly.")
 
         t0 = time.monotonic()
         self._tokenizer = AutoTokenizer.from_pretrained(
