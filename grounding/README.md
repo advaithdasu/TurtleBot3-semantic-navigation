@@ -2,26 +2,33 @@
 
 A minimal, framework-free HTTP wrapper around
 [NVIDIA LocateAnything-3B](https://research.nvidia.com/labs/lpr/locate-anything/)
-(referring-expression grounding: image + phrase → bounding boxes) so the
-ROS 2 stack — which runs CPU-only, typically inside a container — can call
-the model over the network at query time.
+(referring-expression grounding: image + phrase → bounding boxes) that the
+ROS 2 stack calls over the network at query time.
 
-This directory is **not a ROS package**: it has no rclpy dependency and is
-meant to run wherever the GPU is (a workstation, a lab server, a cloud
-box). The ROS side talks to it through
-`src/tb3_grounding/tb3_grounding/grounding_client.py`.
+This directory is **not a ROS package**: it has no rclpy dependency. In the
+normal setup it runs as the `grounding` service in
+[`docker/compose.yaml`](../docker/compose.yaml), sharing the sim
+container's network namespace so the default `127.0.0.1:8801` resolves
+without configuration. It can equally run standalone on a different GPU box
+— point `grounding_server_url` in
+`src/tb3_query/config/semantic_query.yaml` at it. The ROS side talks to it
+through `src/tb3_grounding/tb3_grounding/grounding_client.py`.
 
 ## Why a separate server
 
-- LocateAnything-3B requires an **NVIDIA Ampere-or-newer GPU, Linux, and
-  ~12 GB VRAM** ([model card](https://huggingface.co/nvidia/LocateAnything-3B));
-  the simulation stack is CPU-only.
 - Throughput is ~12.7 boxes/s *on an H100* — far too slow to replace
   YOLOv8n per-frame. The pipeline therefore calls it only **at query
-  time**, over a handful of stored best-view frames.
-- Pinning the model's exact dependency set (`transformers==4.57.1`,
-  `numpy==1.25.0`, ...) in its own environment keeps it out of the ROS
-  container entirely.
+  time**, over a handful of stored best-view frames. Keeping it behind
+  HTTP makes that boundary structural rather than a convention.
+- The model's dependency set is pinned exactly (`transformers==4.57.1`,
+  `numpy==1.25.0`, ...) and conflicts with the ROS container's: ROS
+  Jazzy's `cv_bridge` needs numpy 1.26 built for Python 3.12, while
+  numpy 1.25.0 has no cp312 wheel at all. The two genuinely cannot share
+  an interpreter — which is why `Dockerfile.grounding` is on Ubuntu 22.04
+  (Python 3.10) while the sim image is on 24.04.
+- LocateAnything-3B requires an **NVIDIA Ampere-or-newer GPU, Linux, and
+  ~12 GB VRAM** ([model card](https://huggingface.co/nvidia/LocateAnything-3B)).
+  Isolating it means the rest of the stack does not inherit that floor.
 
 ## API
 
@@ -42,13 +49,26 @@ synchronous and unauthenticated — run it on a trusted network only.
 
 ### `locate_anything` (the real model)
 
+This is the default backend of the `grounding` compose service — normally
+you do not start it by hand:
+
 ```bash
-# 1. Environment (Linux + CUDA GPU). Install torch for your CUDA first:
+docker compose -f docker/compose.yaml up -d grounding
+curl -s localhost:8801/health
+```
+
+Weights (~7 GB) download from HuggingFace on first start and are cached in
+the `hf_cache` named volume; the server does not answer until that
+completes.
+
+Standalone, outside the container (Linux + CUDA GPU):
+
+```bash
+# Install torch for your CUDA first:
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 pip install "transformers==4.57.1" "numpy==1.25.0" "Pillow==11.1.0" \
             "opencv-python-headless==4.11.0.86" peft "decord==0.6.0" "lmdb==1.7.5"
 
-# 2. Run (weights auto-download from HuggingFace on first start, ~7 GB):
 python3 server.py --backend locate_anything --port 8801
 ```
 
@@ -64,6 +84,10 @@ research use only**.
 ### `mock` (GPU-free stand-in)
 
 ```bash
+# via compose (same image, different backend):
+GROUNDING_BACKEND=mock docker compose -f docker/compose.yaml up -d grounding
+
+# or standalone:
 pip install opencv-python-headless numpy
 python3 server.py --backend mock --port 8801
 ```

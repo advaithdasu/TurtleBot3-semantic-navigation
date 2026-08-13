@@ -27,8 +27,9 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "device",
-            default_value="cpu",
-            description="Torch inference device: 'cpu' or 'cuda:0'.",
+            default_value="auto",
+            description="Torch inference device: 'auto' (cuda:0 when a GPU is "
+                        "visible, else cpu), 'cpu', or an explicit 'cuda:N'.",
         ),
         DeclareLaunchArgument(
             "use_sim_time",

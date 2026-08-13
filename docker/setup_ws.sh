@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 # Run inside the sim container: fetch YOLO weights if needed, then build.
+#
+# This is the shell equivalent of the notebook's build cell
+# (tb3_nb.fetch_weights() + tb3_nb.build_workspace()) — use whichever fits
+# how you are driving the stack.
 set -e
 
 WS_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

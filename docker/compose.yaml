@@ -1,40 +1,88 @@
+# GPU host stack: ROS 2 + Gazebo sim driven from JupyterLab, plus the
+# LocateAnything grounding server. Both services need an NVIDIA GPU and
+# the NVIDIA Container Toolkit installed on the host:
+#   https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/
+# Verify with:  docker run --rm --gpus all ubuntu:24.04 nvidia-smi
+#
+#   docker compose -f docker/compose.yaml up -d --build
+#   docker compose -f docker/compose.yaml logs -f sim     # Jupyter URL
+#
+# Ports are published on 127.0.0.1 only — reach the notebook from your
+# laptop with an SSH tunnel, not by exposing 8888 to the internet:
+#   ssh -N -L 8888:localhost:8888 -L 8801:localhost:8801 user@gpu-host
+
 services:
   sim:
     build:
       context: .
       dockerfile: Dockerfile
     image: tb3-semantic-nav-sim
-    # No `platform:` key — ROS 2 Jazzy and Gazebo Harmonic both ship arm64
-    # debs, so this builds and runs natively on Apple Silicon. Do not
-    # reintroduce linux/amd64: that is what forced Rosetta emulation.
     ports:
-      - "6080:80"    # noVNC desktop
-      - "8801:8801"  # grounding server
+      - "127.0.0.1:8888:8888"  # JupyterLab
+      - "127.0.0.1:8801:8801"  # grounding server (shares this netns)
     volumes:
       - ..:/home/ubuntu/ws
-      # Colcon artifacts stay off the bind mount.
+      # Colcon artifacts stay off the bind mount. These paths are created
+      # (and chown'd to ubuntu) in the Dockerfile so the named volumes are
+      # seeded with the right ownership — see the comment there.
       - ws_build:/home/ubuntu/ws/build
       - ws_install:/home/ubuntu/ws/install
       - ws_log:/home/ubuntu/ws/log
-    shm_size: "1gb"
+      # Best-view frames for grounding; kept out of the repo checkout.
+      - evidence:/home/ubuntu/.tb3_semantic_nav
+    shm_size: "2gb"
     environment:
-      - RESOLUTION=1600x900
-      # gz-sim's Sensors system renders camera frames through OGRE, which
-      # needs an X display even when the server runs headless (`-s`).
-      - DISPLAY=:1
+      # Jupyter reads this directly. Override it in a .env file or the
+      # shell; the fallback exists so `up` is one command, not two.
+      - JUPYTER_TOKEN=${JUPYTER_TOKEN:-tb3}
+      - TURTLEBOT3_MODEL=waffle_pi
+      # Deliberately NO `DISPLAY`. The old macOS image ran gz-sim's
+      # Sensors system against a noVNC X server because it had no GPU;
+      # here gz-sim renders headless through EGL straight on the GPU
+      # (tb3_sim.launch.py passes --headless-rendering when DISPLAY is
+      # unset). Setting DISPLAY would send it looking for an X server
+      # that does not exist in this container.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              # `gpu` is the coarse capability compose understands; the
+              # finer-grained graphics/display caps that EGL rendering
+              # needs come from NVIDIA_DRIVER_CAPABILITIES=all, set in
+              # the image. Both are required — the compose entry alone
+              # gives compute only, which renders nothing.
+              capabilities: [gpu]
 
   grounding:
     build:
       context: .
       dockerfile: Dockerfile.grounding
+    image: tb3-semantic-nav-grounding
     # Shares sim's netns so the query node's default 127.0.0.1:8801 works.
     network_mode: "service:sim"
     volumes:
       - ../grounding:/app
+      # LocateAnything-3B is ~7 GB and downloads from HuggingFace on first
+      # start. Without this volume every restart re-fetches it.
+      - hf_cache:/hf-cache
+    environment:
+      # Set to `mock` to fall back to the GPU-free HSV colour heuristic.
+      - GROUNDING_BACKEND=${GROUNDING_BACKEND:-locate_anything}
     depends_on:
       - sim
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
 
 volumes:
   ws_build:
   ws_install:
   ws_log:
+  evidence:
+  hf_cache:

@@ -14,13 +14,20 @@ detector_node:
 
     # ── Inference ──────────────────────────────────────────
     conf_threshold: 0.12              # lowered from 0.15 for bench edge cases
-    device: "cpu"                     # "cpu" | "cuda:0"
+    # "auto" resolves to cuda:0 when a GPU is visible, else cpu — see
+    # detector_core.resolve_device. Pin "cuda:1" etc. to choose a device
+    # on a multi-GPU host. NOTE: detector.launch.py passes this key
+    # inline, which wins over this file; change the launch default too.
+    device: "auto"
     enable_tracking: false            # true = ByteTrack; track_id populated
 
     # Minimum seconds between YOLO inferences. Frames arriving sooner are
-    # dropped in the image callback. 0.2 caps inference at ~5 Hz, which is
-    # all downstream consumers need; CPU inference cannot sustain 30 Hz.
-    min_inference_interval_sec: 0.2
+    # dropped in the image callback. Was 0.2 (~5 Hz) because CPU inference
+    # could not sustain more; YOLOv8n on a GPU runs an order of magnitude
+    # faster, so this is now 0.1 (~10 Hz) — better evidence frames and
+    # tighter localization without saturating anything. The camera itself
+    # publishes at the stock 30 Hz.
+    min_inference_interval_sec: 0.1
 
     # ── Class filter ───────────────────────────────────────
     # List COCO detector_label values from semantic_targets.yaml (validated in sim).

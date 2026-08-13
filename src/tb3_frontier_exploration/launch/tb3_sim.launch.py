@@ -2,13 +2,12 @@
 tb3_sim.launch.py — Gazebo Harmonic (gz-sim) + TurtleBot3 bringup.
 
 Single entry point for "start the simulator with a robot in it", shared by
-detector_test_sim, warehouse_semantic_sim and full_semantic_nav. Replaces
-the Gazebo Classic gzserver.launch.py / gzclient.launch.py pair, which had
-no arm64 binaries and forced the whole image through Rosetta.
+detector_test_sim, warehouse_semantic_sim and full_semantic_nav.
 
 Composes:
-  1. gz-sim server (``-r -s``) on the requested world, plus the GUI client
-     (``-g``) unless use_gzclient:=false
+  1. gz-sim server (``-r -s``) on the requested world, rendering through
+     EGL when headless_rendering:=true, plus the GUI client (``-g``)
+     unless use_gzclient:=false
   2. robot_state_publisher, from turtlebot3_gazebo's URDF
   3. the waffle_pi SDF, spawned via ``ros_gz_sim create``
   4. ros_gz_bridge + ros_gz_image for clock / odom / tf / scan / imu /
@@ -31,11 +30,27 @@ from launch.actions import (
     AppendEnvironmentVariable,
     DeclareLaunchArgument,
     IncludeLaunchDescription,
+    OpaqueFunction,
 )
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+
+
+# On the GPU host there is no X server: gz-sim's Sensors system renders
+# camera frames through OGRE, which needs *some* display unless it is told
+# to use EGL instead. `--headless-rendering` is that switch — ogre2 then
+# creates an EGL context directly on the NVIDIA device, which is both the
+# only way this works without X and considerably faster than the llvmpipe
+# path the macOS image used.
+#
+# Deriving the defaults from DISPLAY rather than hardcoding them keeps a
+# workstation with a real display (or X forwarding) working unchanged:
+# there, gz renders to X and the GUI/RViz come up as before.
+_HAS_DISPLAY = bool(os.environ.get("DISPLAY"))
+_GUI_DEFAULT = "true" if _HAS_DISPLAY else "false"
+_HEADLESS_RENDER_DEFAULT = "false" if _HAS_DISPLAY else "true"
 
 
 def generate_launch_description():
@@ -66,15 +81,26 @@ def generate_launch_description():
         "GZ_SIM_RESOURCE_PATH", os.path.join(pkg_tb3_gz, "models")
     )
 
-    gz_server = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(pkg_ros_gz_sim, "launch", "gz_sim.launch.py")
-        ),
-        launch_arguments={
-            "gz_args": ["-r -s -v2 ", world],
-            "on_exit_shutdown": "true",
-        }.items(),
-    )
+    def make_gz_server(context, *_args, **_kwargs):
+        """Build the gz-sim server include, adding --headless-rendering when
+        asked for.
+
+        An OpaqueFunction rather than a substitution because gz_args is a
+        single concatenated string: there is no clean way to conditionally
+        splice a flag into it without resolving the LaunchConfiguration
+        first.
+        """
+        headless = LaunchConfiguration("headless_rendering").perform(context)
+        flag = "--headless-rendering " if headless.lower() == "true" else ""
+        return [IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(
+                os.path.join(pkg_ros_gz_sim, "launch", "gz_sim.launch.py")
+            ),
+            launch_arguments={
+                "gz_args": ["-r -s -v2 ", flag, world],
+                "on_exit_shutdown": "true",
+            }.items(),
+        )]
 
     # The GUI is a separate process in gz-sim, as gzclient was in Classic;
     # the launch argument keeps its old name so existing commands and docs
@@ -130,8 +156,15 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument("use_sim_time", default_value="true"),
         DeclareLaunchArgument(
-            "use_gzclient", default_value="true",
-            description="Launch the Gazebo GUI client (false for headless runs)",
+            "use_gzclient", default_value=_GUI_DEFAULT,
+            description="Launch the Gazebo GUI client. Defaults to true only "
+                        "when DISPLAY is set; the containerised GPU host is "
+                        "headless and drives the sim from the notebook.",
+        ),
+        DeclareLaunchArgument(
+            "headless_rendering", default_value=_HEADLESS_RENDER_DEFAULT,
+            description="Render camera/lidar sensors through EGL instead of an "
+                        "X display. Defaults to true when DISPLAY is unset.",
         ),
         DeclareLaunchArgument(
             "world", description="Absolute path to the .world (SDF) file to load",
@@ -139,7 +172,7 @@ def generate_launch_description():
         DeclareLaunchArgument("x_pose", default_value="0.0"),
         DeclareLaunchArgument("y_pose", default_value="0.0"),
         tb3_resources,
-        gz_server,
+        OpaqueFunction(function=make_gz_server),
         gz_gui,
         robot_state_publisher,
         spawn,

@@ -54,6 +54,43 @@ except ImportError:
 DETECTION_KEYS = ("label", "conf", "bbox_xyxy", "track_id")
 
 
+def resolve_device(device: str) -> str:
+    """Map the ``"auto"`` sentinel onto a concrete torch device string.
+
+    The stack now runs on an NVIDIA host, but the same tree is still
+    expected to work on a laptop and in CI where importing torch may
+    succeed with a CPU build (or fail entirely, since the unit tests do
+    not require it). Rather than hardcode ``cuda:0`` — which turns a
+    missing GPU into a hard crash inside ultralytics — resolve at load
+    time and fall back to CPU.
+
+    Any explicit value ("cpu", "cuda:0", "cuda:1", "mps") is passed
+    through untouched, so pinning a specific GPU still works.
+    """
+    if device != "auto":
+        return device
+
+    try:
+        import torch
+    except ImportError:
+        logger.warning("device='auto' but torch is not importable; using cpu")
+        return "cpu"
+
+    if torch.cuda.is_available():
+        return "cuda:0"
+
+    # Not an error: the mock/CI path legitimately lands here. Logged at
+    # warning because on the GPU host it means the container did not get
+    # a device, and silently running YOLO on CPU there looks like an
+    # unexplained real-time-factor collapse rather than a misconfiguration.
+    logger.warning(
+        "device='auto' but torch.cuda.is_available() is False; using cpu. "
+        "On the GPU host this usually means the container was started "
+        "without the NVIDIA runtime — check `nvidia-smi` inside it."
+    )
+    return "cpu"
+
+
 class DetectorCore:
     """
     Thin wrapper around a YOLOv8 model.
@@ -74,7 +111,9 @@ class DetectorCore:
         If given, only return detections whose label is in this list.
         None means return all detected classes.
     device : str
-        Torch device string, e.g. "cpu", "cuda:0", "mps".
+        Torch device string, e.g. "cpu", "cuda:0", "mps", or "auto" to
+        pick cuda:0 when a GPU is visible and cpu otherwise. Resolved in
+        load(), not here, so constructing the core never imports torch.
     enable_tracking : bool
         If True, use model.track() instead of model.predict() (ByteTrack).
         track_id in the result dict will be populated.
@@ -85,7 +124,7 @@ class DetectorCore:
         model_path: str | Path,
         conf_threshold: float = 0.35,
         class_filter: list[str] | None = None,
-        device: str = "cpu",
+        device: str = "auto",
         enable_tracking: bool = False,
     ) -> None:
         self.model_path = Path(model_path)
@@ -112,6 +151,11 @@ class DetectorCore:
                 f"Model file not found: {self.model_path}\n"
                 "► See the STOP HERE checkpoint in the README to download weights."
             )
+
+        # Resolve "auto" here rather than in __init__ so that merely
+        # constructing a DetectorCore stays import-free — the unit tests
+        # build one without torch installed.
+        self.device = resolve_device(self.device)
 
         logger.info("Loading YOLOv8 model from %s on device=%s", self.model_path, self.device)
         self._model = _UltralyticsYOLO(str(self.model_path))

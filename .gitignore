@@ -10,5 +10,9 @@ log/
 __pycache__/
 *.py[cod]
 
+# Jupyter — checkpoints, and executed copies of the driver notebook.
+# The committed .ipynb is kept output-free so diffs stay readable.
+.ipynb_checkpoints/
+
 # macOS
 .DS_Store

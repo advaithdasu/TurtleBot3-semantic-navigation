@@ -6,6 +6,8 @@ execution driven by simple rule-based text commands (e.g. `go to person`, `go to
 
 **Stack:** Ubuntu 24.04 · ROS 2 Jazzy · Gazebo Harmonic · TurtleBot3 `waffle_pi` · YOLOv8n · Nav2 · SLAM Toolbox launched through `nav2_bringup` with `slam:=True`.
 
+**Runs on:** an NVIDIA GPU host via Docker Compose, driven from a Jupyter notebook — GPU-accelerated EGL rendering, CUDA YOLO inference, and NVIDIA LocateAnything-3B for attribute queries. See [Running it](#running-it).
+
 ## Project Highlights
 
 - **End-to-end semantic navigation pipeline on TurtleBot3 Waffle Pi**, from perception and SLAM through semantic memory to Nav2 goal execution, brought up by a single `ros2 launch` entry point.
@@ -131,79 +133,103 @@ Full demo: [Google Drive](https://drive.google.com/file/d/1Qzl15Erv7ww3lYTszrFD-
 
 The simulated TurtleBot3 streams a forward RGB image and a 360° LiDAR scan into ROS 2. `tb3_detector` runs YOLOv8n on every frame and publishes 2D detections, while `tb3_localizer` converts each bounding-box centre into a camera-frame bearing and looks up a robust median range from a small LiDAR window to obtain an `(x, y)` position in `base_link`. `tb3_memory` merges those observations into stable semantic landmarks with deterministic per-class IDs such as `person_0`, `person_1`, …, and `semantic_map_memory_node` snaps them onto the live SLAM Toolbox map for RViz overlay. A terminal command on `/user_command` is intercepted by the coordinator, parsed by the **deterministic, rule-based** `tb3_query` node (no LLM), turned into a safe approach pose by `tb3_nav_adapter`, and executed by Nav2's `NavigateToPose` action — after which the coordinator resumes frontier exploration. These IDs (e.g. `person_3`) are semantic-memory slots, not identity recognition; the system does not perform person re-identification.
 
-## Quick build
+## Running it
 
-> **Before building: download YOLOv8n weights (~6 MB).**
-> The `*.pt` files are git-ignored (see `src/tb3_detector/models/.gitignore`),
-> so you must fetch them locally **before `./build.sh`** — otherwise
-> `detector_node` crashes on startup with `FileNotFoundError: yolov8n.pt`
-> and the **"Detector Debug Image"** panel in RViz stays blank ("No Image").
->
-> ```bash
-> cd ~/TurtleBot3-semantic-navigation
-> wget -O src/tb3_detector/models/yolov8n.pt \
->   https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8n.pt
-> ```
+The stack runs in Docker on an **NVIDIA GPU host** and is driven from a
+**Jupyter notebook**. Everything is on the GPU: gz-sim renders the robot's
+camera through EGL, YOLOv8n infers on CUDA, and the LocateAnything-3B
+grounding model runs in a sidecar container.
 
-### Running on Apple Silicon (Docker)
-
-The sim container runs **natively on arm64** — there is no `platform:`
-key in `docker/compose.yaml` and no Rosetta involved. That is the reason
-this project is on Jazzy + Gazebo Harmonic rather than Humble + Gazebo
-Classic: Classic has no arm64 Linux binaries at all, so the old image had
-to be pinned `linux/amd64` and translated. Harmonic ships arm64 debs, and
-Jazzy's `turtlebot3_gazebo` is already gz-sim based.
-
-If you previously enabled Docker Desktop → Settings → General → "Use
-Rosetta for x86_64/amd64 emulation on Apple Silicon" for this project, it
-is no longer needed here.
-
-The desktop (Gazebo GUI, RViz) is served to your browser through noVNC.
-gz-sim's `Sensors` system needs an X display to render camera frames even
-when the server runs headless; the compose file sets `DISPLAY=:1` (the VNC
-display) so both desktop terminals and `docker exec` shells work.
+**Requirements:** Linux x86_64, an NVIDIA GPU (Ampere+ and ~12 GB VRAM if
+you want the real grounding backend), the NVIDIA driver, Docker, and the
+[NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/).
+Verify the toolkit before anything else — every downstream symptom of a
+missing one is indirect:
 
 ```bash
+docker run --rm --gpus all ubuntu:24.04 nvidia-smi
+```
+
+### 1. Start the containers
+
+```bash
+git clone https://github.com/advaithdasu/TurtleBot3-semantic-navigation.git
+cd TurtleBot3-semantic-navigation
 docker compose -f docker/compose.yaml up -d --build
+docker compose -f docker/compose.yaml logs -f sim     # JupyterLab URL
 ```
 
-Then open http://localhost:6080, launch a terminal inside the desktop,
-and:
+This brings up two services:
+
+| service | what it is | GPU use |
+| --- | --- | --- |
+| `sim` | ROS 2 Jazzy + Gazebo Harmonic + YOLOv8n, serving JupyterLab on **8888** | EGL rendering + CUDA inference |
+| `grounding` | LocateAnything-3B HTTP server on **8801**, sharing `sim`'s network namespace | model inference at query time |
+
+Both ports are published on `127.0.0.1` only. Reach the notebook from your
+laptop over an SSH tunnel rather than exposing it:
 
 ```bash
-cd ~/ws
+ssh -N -L 8888:localhost:8888 -L 8801:localhost:8801 user@gpu-host
+```
+
+Then open <http://localhost:8888> (token defaults to `tb3`; override with
+`JUPYTER_TOKEN` in the environment or a `.env` file).
+
+### 2. Drive it from the notebook
+
+Open **[`notebooks/semantic_nav.ipynb`](notebooks/semantic_nav.ipynb)** and
+work down it. It checks the GPU is visible, downloads the YOLOv8n weights,
+builds the workspace, launches the stack, and then renders the camera, the
+SLAM map, and the semantic landmarks inline — plus cells to send commands
+and watch the coordinator's state machine. The helper functions behind the
+cells live in [`notebooks/tb3_nb.py`](notebooks/tb3_nb.py).
+
+There is no RViz and no Gazebo GUI: the container is headless, and the
+notebook's inline map/camera views replace them.
+
+> **YOLOv8n weights (~6 MB).** The `*.pt` files are git-ignored (see
+> `src/tb3_detector/models/.gitignore`). The notebook's build cell fetches
+> them; without them `detector_node` crashes on startup with
+> `FileNotFoundError: yolov8n.pt`.
+
+### Running from a shell instead
+
+The notebook is a convenience, not a requirement — the launch files are
+unchanged and work from a terminal in the same container:
+
+```bash
+docker compose -f docker/compose.yaml exec sim bash
 ./docker/setup_ws.sh          # downloads YOLO weights, runs ./build.sh
-source install/setup.bash
 ros2 launch tb3_coordinator full_semantic_nav.launch.py
 ```
 
-The compose file also starts the mock grounding server on
-`127.0.0.1:8801` (it shares the sim container's network), so attribute
-commands like `go to the sofa with warm color` work out of the box.
-Pass `use_gzclient:=false use_rviz:=false` for headless runs.
-
-Physics, SLAM, Nav2 and YOLO all run at native speed now. Rendering is
-still software-only (llvmpipe) — Docker on macOS has no GPU passthrough —
-so the camera path remains the main brake on real-time factor. If you need
-more headroom, `use_gzclient:=false` is the single biggest win, since it
-drops a second software-rendered viewport.
-
-### One-click start
-
-```bash
-cd ~/TurtleBot3-semantic-navigation
-./build.sh
-source /opt/ros/humble/setup.bash
-source install/setup.bash
-export TURTLEBOT3_MODEL=waffle_pi
-ros2 launch tb3_coordinator full_semantic_nav.launch.py
-```
+`use_gzclient`, `use_rviz` and `headless_rendering` all default off the
+`DISPLAY` environment variable: unset (the container) means headless EGL
+rendering with no GUI, set (a workstation, or X forwarding) means gz-sim
+renders to X and the Gazebo GUI and RViz start as usual. Override any of
+them explicitly if you want something else.
 
 Runtime debug overlay:
 
 ```bash
 ros2 launch tb3_coordinator full_semantic_nav.launch.py use_runtime_debug:=true
 ```
+
+### GPU notes
+
+- **`detector_node` picks its device automatically.** The `device`
+  parameter defaults to `auto`, resolving to `cuda:0` when a GPU is
+  visible and `cpu` otherwise (`detector_core.resolve_device`). The node
+  logs which one it landed on at startup — check that line first if the
+  pipeline feels slow. Pin `device:=cuda:1` to choose a GPU.
+- **Sensors run at their stock rates.** Earlier revisions of the image
+  patched the packaged `waffle_pi` SDF down to a 10 Hz camera because
+  gz-sim rendered through llvmpipe on macOS. With EGL on a real GPU that
+  workaround costs fidelity for nothing, so the SDF is left alone.
+- **No GPU?** The stack still runs — torch falls back to CPU and gz-sim
+  falls back to llvmpipe — but slowly enough that the real-time factor
+  becomes the limiting factor on everything downstream.
 
 ### Choose a Gazebo world
 
@@ -250,7 +276,11 @@ warehouse_models_person) or an absolute path to a .world file.
 > resulting broken occupancy patches) that plagued the earlier 6 × 10 m
 > layout.
 
-### Send semantic commands (second terminal, same workspace sourced)
+### Send semantic commands
+
+From the notebook, `ros.send_command("go to person")`; from a second shell
+in the container with the workspace sourced, the `ros2 topic pub` forms
+below. Both put the same string on `/user_command`.
 
 The command interface accepts natural-language-*style* phrases, but the parser is **deterministic and rule-based — there is no LLM**. `parse_command` in [`src/tb3_query/tb3_query/query_core.py`](src/tb3_query/tb3_query/query_core.py) lowercases the input, strips punctuation, drops a fixed **filler** word list (`go`, `to`, `the`, `please`, `navigate`, …), and then resolves the remaining tokens against the **canonical targets** loaded from `semantic_targets.yaml` (only entries with `enabled: true`). Extra words are ignored unless they appear before a recognized target token.
 
@@ -342,22 +372,36 @@ How it works (design rationale in [`src/tb3_grounding/README.md`](src/tb3_ground
    If the model inspects every candidate and none matches the
    expression, the query **fails** rather than guessing.
 
-Run the grounding server (LocateAnything needs an NVIDIA Ampere+ GPU and
-Linux; it must NOT run per-frame — it is only called at query time):
+The grounding server runs as the `grounding` sidecar container, started by
+the same `docker compose up`. It shares the sim container's network
+namespace, so the query node's default `127.0.0.1:8801` reaches it with no
+configuration. LocateAnything is called **only at query time**, never
+per-frame: throughput is ~12.7 boxes/s on an H100, nowhere near a camera
+rate.
+
+The weights are ~7 GB and download from HuggingFace on the sidecar's first
+start — it will not answer until that finishes. A named volume caches them
+across restarts. Check what actually loaded before drawing conclusions from
+a failed query:
 
 ```bash
-# On a GPU machine (weights auto-download from HuggingFace, ~7 GB):
-cd grounding && python3 server.py --backend locate_anything --port 8801
-
-# GPU-free demo/testing (HSV color heuristic — handles "warm color",
-# "cool color", and named colors end-to-end without the model):
-cd grounding && python3 server.py --backend mock --port 8801
+curl -s localhost:8801/health
 ```
 
-Point `grounding_server_url` in
-[`src/tb3_query/config/semantic_query.yaml`](src/tb3_query/config/semantic_query.yaml)
-at the server. Note the LocateAnything-3B weights are licensed for
-**non-commercial research use only**.
+To fall back to the GPU-free mock backend (an HSV colour heuristic that
+handles "warm color", "cool color" and named colours end-to-end, and
+nothing else):
+
+```bash
+GROUNDING_BACKEND=mock docker compose -f docker/compose.yaml up -d grounding
+```
+
+Note the LocateAnything-3B weights are licensed for **non-commercial
+research use only**.
+
+To point the query node at a server elsewhere (a separate GPU box, say),
+change `grounding_server_url` in
+[`src/tb3_query/config/semantic_query.yaml`](src/tb3_query/config/semantic_query.yaml).
 
 > Detecting a sofa requires an actual couch mesh in the Gazebo world
 > (YOLO will not classify primitive boxes as `couch`); the mechanism is
@@ -378,9 +422,9 @@ Canonical semantic name mapping lives in
 
 The YOLOv8n weights are expected at
 `src/tb3_detector/models/yolov8n.pt`. They are **not committed** to the
-repository (see `src/tb3_detector/models/.gitignore`); download them
-locally before the first build by following the [Quick build](#quick-build)
-section.
+repository (see `src/tb3_detector/models/.gitignore`); the notebook's
+build cell (or `./docker/setup_ws.sh`) fetches them — see
+[Running it](#running-it).
 
 ## My Contributions
 

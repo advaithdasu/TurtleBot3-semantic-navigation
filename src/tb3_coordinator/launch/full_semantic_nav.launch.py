@@ -95,6 +95,15 @@ _FALLBACK_SPAWN_X = "-1.2"
 _FALLBACK_SPAWN_Y = "-1.2"
 
 
+# Mirrors tb3_sim.launch.py: on the headless GPU host there is no X server,
+# so the Gazebo GUI and RViz cannot start and gz-sim must render its sensors
+# through EGL. Keying the defaults off DISPLAY means the containerised run
+# needs no flags and a workstation run behaves as it always did.
+_HAS_DISPLAY = bool(os.environ.get("DISPLAY"))
+_GUI_DEFAULT = "true" if _HAS_DISPLAY else "false"
+_HEADLESS_RENDER_DEFAULT = "false" if _HAS_DISPLAY else "true"
+
+
 # ── Staged startup delays (seconds after launch) ──────────────────────────
 #
 # Nav2 runs with autostart=True, so its lifecycle_manager walks every node
@@ -113,10 +122,11 @@ _FALLBACK_SPAWN_Y = "-1.2"
 #      'unconfigured', so no navigate_to_pose server ever appeared.
 #
 # gz-sim's mesh loading and SLAM's initialisation are the CPU spike, so
-# T_NAV2 is set well past them rather than overlapping. These values were
-# retuned for the native arm64 stack; the previous 10/15/18/20/23 ladder was
-# tuned against the emulated one, where the whole startup was stretched out
-# and the overlap happened to be less damaging.
+# T_NAV2 is set well past them rather than overlapping. The ladder is kept
+# deliberately generous: GPU rendering makes startup faster than the values
+# below assume, but they cost only a few idle seconds once, whereas tightening
+# them re-opens the dropped-lifecycle-response failure described above — which
+# fails silently, with no navigate_to_pose server and no error.
 #
 # Ordering invariant: NAV2 < PERCEPTION <= MAP_MEMORY <= EVIDENCE_STORE
 #                     < EXPLORATION < COORDINATOR
@@ -206,6 +216,7 @@ def generate_launch_description():
                 "world": world_file,
                 "use_sim_time": use_sim_time,
                 "use_gzclient": LaunchConfiguration("use_gzclient"),
+                "headless_rendering": LaunchConfiguration("headless_rendering"),
                 "x_pose": x_final,
                 "y_pose": y_final,
             }.items(),
@@ -344,11 +355,21 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument("use_sim_time", default_value="true"),
-        DeclareLaunchArgument("use_rviz", default_value="true",
-                              description="Launch RViz with semantic nav config"),
-        DeclareLaunchArgument("use_gzclient", default_value="true",
+        # GUI defaults follow DISPLAY (see _GUI_DEFAULT above). On the
+        # containerised GPU host nothing X-based can run, and the notebook
+        # renders the map, landmarks and detector overlay inline instead;
+        # on a workstation with a display these still default to true.
+        DeclareLaunchArgument("use_rviz", default_value=_GUI_DEFAULT,
+                              description="Launch RViz with semantic nav config. "
+                                          "Defaults to true only when DISPLAY is set."),
+        DeclareLaunchArgument("use_gzclient", default_value=_GUI_DEFAULT,
                               description="Launch the Gazebo GUI client "
                                           "(false for headless runs)"),
+        DeclareLaunchArgument("headless_rendering",
+                              default_value=_HEADLESS_RENDER_DEFAULT,
+                              description="Render gz-sim sensors through EGL on the "
+                                          "GPU instead of an X display. Defaults to "
+                                          "true when DISPLAY is unset."),
 
         # Spawn pose defaults to "AUTO" — at launch time the OpaqueFunction
         # below substitutes in the per-world default registered in

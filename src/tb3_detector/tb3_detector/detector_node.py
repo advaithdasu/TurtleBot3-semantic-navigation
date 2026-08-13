@@ -23,7 +23,7 @@ Parameters
 ----------
   model_path              str   Path to yolov8*.pt (see README STOP HERE checkpoint)
   conf_threshold          float 0.35
-  device                  str   "cpu" | "cuda:0"
+  device                  str   "auto" (cuda:0 if a GPU is visible, else cpu) | "cpu" | "cuda:0"
   class_filter            list  [] means all classes; ["chair","table","fridge"] to filter
   enable_tracking         bool  false
   publish_debug_image     bool  true
@@ -142,7 +142,7 @@ class DetectorNode(Node):
         # ── Parameters ─────────────────────────────────────────────────────
         self.declare_parameter("model_path", "")
         self.declare_parameter("conf_threshold", 0.35)
-        self.declare_parameter("device", "cpu")
+        self.declare_parameter("device", "auto")
         self.declare_parameter("class_filter", [""])          # empty list = all classes
         self.declare_parameter("enable_tracking", False)
         self.declare_parameter("publish_debug_image", True)
@@ -243,10 +243,13 @@ class DetectorNode(Node):
         else:
             self._dbg_pub = None
 
+        # Report the *resolved* device, not the requested one: with the
+        # default "auto" the requested value says nothing about whether
+        # inference actually landed on the GPU.
         self.get_logger().info(
             "detector_node ready. "
-            "image_topic=%s  class_filter=%s  conf=%.2f  device=%s  tracking=%s"
-            % (image_topic, class_filter, conf, device, tracking)
+            "image_topic=%s  class_filter=%s  conf=%.2f  device=%s (requested %s)  tracking=%s"
+            % (image_topic, class_filter, conf, self._core.device, device, tracking)
         )
 
     # ── Callbacks ───────────────────────────────────────────────────────────
@@ -294,8 +297,17 @@ class DetectorNode(Node):
         if self._dbg_pub is not None and self._dbg_pub.get_subscription_count() > 0:
             vis = _draw_detections(bgr, detections) if detections else bgr
             try:
-                dbg_msg = self._bridge.cv2_to_imgmsg(vis, encoding="bgr8")
+                # Build the Image message by hand instead of cv_bridge.cv2_to_imgmsg:
+                # pip opencv-python >= 4.12 changed the CV_* type constants, which
+                # breaks cv_bridge's encode-side cvtype_to_name lookup (KeyError: 16).
+                dbg_msg = Image()
                 dbg_msg.header = msg.header
+                dbg_msg.height = vis.shape[0]
+                dbg_msg.width = vis.shape[1]
+                dbg_msg.encoding = "bgr8"
+                dbg_msg.is_bigendian = 0
+                dbg_msg.step = vis.shape[1] * 3
+                dbg_msg.data = vis.tobytes()
                 self._dbg_pub.publish(dbg_msg)
             except Exception as e:
                 self.get_logger().warning("Debug image publish failed: %s" % e)
