@@ -156,6 +156,7 @@ def run_manifest(
     ground_fn: Callable[[bytes, str], list],
     backend_name: str = "unknown",
     only: Optional[str] = None,
+    progress: bool = True,
 ) -> dict:
     """Score every case; returns the results dict (also see write_results).
 
@@ -168,9 +169,22 @@ def run_manifest(
     case_results = []
     latencies = []
 
-    for case in manifest["cases"]:
-        if only and case["capability"] != only:
-            continue
+    # Progress is printed per case rather than only in the final report.
+    # A real grounding model takes tens of seconds per image on anything
+    # short of a datacentre GPU, so a 14-case run is minutes long; with
+    # the report as the only output, that is indistinguishable from a
+    # hang. Everything is flushed because stdout is a pipe as often as
+    # it is a terminal here.
+    selected = [c for c in manifest["cases"]
+                if not (only and c["capability"] != only)]
+    total = len(selected)
+
+    for idx, case in enumerate(selected, 1):
+        if progress:
+            print(f"[{idx:2d}/{total}] {case['id']:<22} "
+                  f"{case['capability']:<9} {case['query'][:44]!r} ... ",
+                  end="", flush=True)
+        t_case = time.monotonic()
         entry = {
             "id": case["id"],
             "mode": case["mode"],
@@ -198,6 +212,14 @@ def run_manifest(
                 f"'{case['capability']}' capability — expected miss, "
                 "not a regression"
             )
+        if progress:
+            print(f"{entry['verdict']}  ({time.monotonic() - t_case:.1f}s)",
+                  flush=True)
+            if entry["verdict"] == VERDICT_ERROR:
+                # Surfaced immediately: the usual cause is a client
+                # timeout, and seeing it on case 1 saves waiting out the
+                # remaining thirteen to learn the same thing.
+                print(f"          → {entry['reason']}", flush=True)
         case_results.append(entry)
 
     return {
@@ -368,14 +390,23 @@ def write_results(results: dict, out_path: pathlib.Path) -> None:
 # CLI
 # --------------------------------------------------------------------------
 
-def _make_client(server_url: str):
+def _make_client(server_url: str, timeout_sec: float = 300.0):
     """Import the existing stdlib GroundingClient from the ROS source
-    tree (read-only dependency; it has no ROS or third-party imports)."""
+    tree (read-only dependency; it has no ROS or third-party imports).
+
+    The client's own default is 20 s, tuned for the live navigation path
+    where a query that slow has already lost the user. Offline eval has
+    the opposite priority: LocateAnything-3B decoding up to 2048 tokens
+    takes tens of seconds to minutes per image on a consumer GPU (the
+    model card's throughput figure is measured on an H100). At 20 s every
+    case would time out and be scored ERROR, which reads as a broken
+    model rather than an impatient client.
+    """
     client_dir = _REPO_ROOT / "src" / "tb3_grounding" / "tb3_grounding"
     if str(client_dir) not in sys.path:
         sys.path.insert(0, str(client_dir))
     from grounding_client import GroundingClient  # noqa: E402
-    return GroundingClient(server_url)
+    return GroundingClient(server_url, timeout_sec=timeout_sec)
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -389,6 +420,12 @@ def main(argv: Optional[list[str]] = None) -> int:
                     help="results JSON path "
                          "(default: <manifest_stem>_results.json "
                          "next to the manifest)")
+    ap.add_argument("--timeout", type=float, default=300.0,
+                    help="per-request timeout in seconds (default: 300). "
+                         "Large models on consumer GPUs need minutes per "
+                         "image; the mock backend needs milliseconds.")
+    ap.add_argument("--quiet", action="store_true",
+                    help="suppress per-case progress lines")
     args = ap.parse_args(argv)
 
     try:
@@ -419,7 +456,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             file=sys.stderr)
         return 2
 
-    client = _make_client(args.server)
+    client = _make_client(args.server, timeout_sec=args.timeout)
     health = client.health()
     if health is None:
         print(
@@ -431,8 +468,17 @@ def main(argv: Optional[list[str]] = None) -> int:
         return 2
     backend_name = health.get("backend", "unknown")
 
+    if not args.quiet:
+        # Echo what /health reported. dtype in particular decides whether
+        # a run is comparable to another one (fp16 vs the model card's
+        # bf16), and it is invisible from this side otherwise.
+        detail = "  ".join(f"{k}={v}" for k, v in health.items()
+                           if k in ("backend", "device", "dtype", "model"))
+        print(f"server: {detail}\ntimeout: {args.timeout:.0f}s per request\n")
+
     results = run_manifest(manifest, manifest_dir, client.ground,
-                           backend_name=backend_name, only=args.only)
+                           backend_name=backend_name, only=args.only,
+                           progress=not args.quiet)
     results["server"] = args.server
     results["manifest"] = str(args.manifest)
 

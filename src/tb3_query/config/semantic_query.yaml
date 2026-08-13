@@ -30,7 +30,20 @@ semantic_query_node:
     # degrade to plain nearest-first selection.
     grounding_enabled: true
     grounding_server_url: "http://127.0.0.1:8801"
-    grounding_timeout_sec: 20.0
+    # Per-request, and the query node makes one request PER CANDIDATE
+    # landmark — so worst-case wait is roughly this times the number of
+    # same-class candidates, not this.
+    #
+    # Was 20.0, which silently guaranteed failure with the real model on
+    # anything less than a datacentre GPU: LocateAnything-3B decodes up
+    # to 2048 tokens and takes tens of seconds per image on e.g. a
+    # 2080 Ti, so every request timed out and the node degraded to
+    # nearest-first selection — looking like "grounding found nothing"
+    # rather than "grounding never got to answer".
+    #
+    # Tune to taste: lower it if you would rather fall back fast than
+    # have the robot wait, raise it if you want grounding to win.
+    grounding_timeout_sec: 120.0
     # Must match evidence_dir in tb3_grounding/config/grounding.yaml.
     evidence_dir: "~/.tb3_semantic_nav/evidence"
     # Floor on IoU x box-score for accepting a grounded match; below it

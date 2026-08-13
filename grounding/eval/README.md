@@ -85,6 +85,25 @@ python3 grounding/eval/run_eval.py \
 Exit code: 0 all good, 1 real failures, 2 setup problem (no captures /
 server unreachable / bad manifest).
 
+The runner prints a line per case as it goes, so a slow backend looks
+slow rather than hung:
+
+```
+server: backend=locate_anything  device=cuda  dtype=float16
+timeout: 300s per request
+
+[ 1/14] rec_chair              identity  'chair' ... pass  (34.2s)
+[ 2/14] rec_box                identity  'box' ... fail  (31.8s)
+```
+
+`--timeout` (default 300 s) is the per-request ceiling. **This matters
+with the real model:** LocateAnything-3B decodes up to 2048 tokens and
+takes tens of seconds per image on a consumer GPU — the model card's
+~12.7 boxes/s is an H100 figure. The underlying `GroundingClient`
+defaults to 20 s, which is right for live navigation and far too short
+here; every case would be scored `ERR` and read as a broken model.
+Use `--quiet` to suppress the per-case lines.
+
 ## What to expect per backend
 
 The runner tags each case with the minimum capability it needs and
