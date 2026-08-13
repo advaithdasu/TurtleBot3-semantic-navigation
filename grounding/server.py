@@ -117,11 +117,20 @@ def main() -> None:
     ap.add_argument("--port", "-p", type=int, default=8801)
     ap.add_argument("--device", default="cuda",
                     help="torch device for locate_anything (default: cuda)")
+    ap.add_argument("--dtype", default="auto",
+                    choices=["auto", "bfloat16", "float16", "float32"],
+                    help="compute dtype for locate_anything. 'auto' uses "
+                         "bfloat16 on Ampere+ and float16 on older GPUs "
+                         "(Turing has no native bf16).")
     ap.add_argument("--model", default=None,
                     help="override HF model id for locate_anything")
     args = ap.parse_args()
 
     kwargs = {"device": args.device}
+    # dtype is meaningless to the mock backend (pure OpenCV, no torch), so
+    # it is not passed there — keeps `--help` honest about what applies.
+    if args.backend == "locate_anything":
+        kwargs["dtype"] = args.dtype
     if args.model:
         kwargs["model_id"] = args.model
     backend = get_backend(args.backend, **kwargs)
