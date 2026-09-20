@@ -24,8 +24,21 @@ from launch.substitutions import LaunchConfiguration
 
 # Matches tb3_sim.launch.py. This wrapper passes use_gzclient down
 # explicitly, so a hardcoded "true" here would override tb3_sim's own
-# DISPLAY-derived default and try to open a GUI on the headless GPU host.
-_GUI_DEFAULT = "true" if os.environ.get("DISPLAY") else "false"
+# default and try to open a GUI with no X server behind it. DISPLAY being
+# set is not enough on the GPU host (compose exports DISPLAY=:99 whether or
+# not docker/start_gui.sh has started the noVNC desktop), so probe the
+# socket the same way tb3_sim.launch.py does.
+def _x_display_available() -> bool:
+    disp = os.environ.get("DISPLAY", "")
+    if not disp:
+        return False
+    host, _, screen = disp.rpartition(":")
+    if host:                       # ssh -X style DISPLAY=localhost:10.0
+        return True
+    return os.path.exists("/tmp/.X11-unix/X" + screen.split(".")[0])
+
+
+_GUI_DEFAULT = "true" if _x_display_available() else "false"
 
 
 def generate_launch_description():
@@ -49,7 +62,7 @@ def generate_launch_description():
         DeclareLaunchArgument("use_sim_time", default_value="true"),
         DeclareLaunchArgument("use_gzclient", default_value=_GUI_DEFAULT,
                               description="Launch the Gazebo GUI client. Defaults "
-                                          "to true only when DISPLAY is set."),
+                                          "to true when an X server is reachable."),
         # Robot spawns at origin facing +X so all test objects are directly ahead.
         DeclareLaunchArgument("x_pose", default_value="0.0",
                               description="TB3 spawn X (world frame)"),

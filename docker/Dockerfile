@@ -52,14 +52,22 @@ http://packages.osrfoundation.org/gazebo/ubuntu-stable noble main" \
 #     tb3_frontier_exploration does find_package(ament_lint_auto REQUIRED)
 #     under the default BUILD_TESTING=ON. Trimming to ros-base means
 #     re-adding those four by hand for a colcon failure deep inside a CMake
-#     configure step. rviz2 comes along too, which is useful over X
-#     forwarding even though the container itself is headless.
+#     configure step. rviz2 comes along too, and it is what you actually
+#     look at through the noVNC desktop (docker/start_gui.sh).
 #
 #   libglvnd0/libegl1/libgles2 — the *dispatch* libraries. The actual
 #     NVIDIA implementations arrive at runtime via the container toolkit;
 #     without the loaders present that injection has nothing to bind into.
-#     libgl1-mesa-dri stays as a deliberate llvmpipe fallback so the image
-#     is still usable (slowly) on a box with no GPU.
+#     libgl1-mesa-dri / libglx-mesa0 are not only a no-GPU fallback: they
+#     are what RViz and the Gazebo GUI actually draw through when they run
+#     on the Xvfb desktop (docker/start_gui.sh), since Xvfb advertises no
+#     NVIDIA GLX vendor. Sensor rendering still goes to the GPU via EGL.
+#
+#   xvfb/x11vnc/novnc/websockify/fluxbox — the remote GUI path. There is no
+#     display on a headless GPU box, and X11 forwarding a Gazebo window
+#     over a WAN link is unusable; a virtual X server exported over noVNC
+#     rides the same SSH tunnel as Jupyter and needs no client-side XQuartz.
+#     See docker/start_gui.sh, which supervises the four of them.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ros-jazzy-desktop \
         ros-jazzy-ros-gz-sim \
@@ -74,11 +82,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ros-jazzy-tf2-geometry-msgs \
         python3-colcon-common-extensions \
         python3-pip \
-        libglvnd0 libgl1 libglx0 libegl1 libgles2 libgl1-mesa-dri \
+        libglvnd0 libgl1 libglx0 libegl1 libgles2 \
+        libgl1-mesa-dri libglx-mesa0 libegl-mesa0 \
         libxext6 libx11-6 \
-        xvfb \
+        xvfb x11vnc novnc websockify fluxbox x11-utils xauth \
+        mesa-utils \
         git wget \
     && rm -rf /var/lib/apt/lists/*
+
+# novnc ships its client as vnc.html; the symlink makes a bare
+# http://localhost:6080/ land somewhere useful instead of on a directory
+# listing. The asserts fail the build here rather than at `start_gui.sh
+# start` time, where a missing package reads as a broken tunnel.
+RUN test -f /usr/share/novnc/vnc.html \
+    && ln -sf /usr/share/novnc/vnc.html /usr/share/novnc/index.html \
+    && { command -v websockify >/dev/null || python3 -c "import websockify"; } \
+    && command -v x11vnc >/dev/null \
+    && command -v Xvfb >/dev/null
 
 # ── Python: CUDA torch, YOLO, JupyterLab ─────────────────────────────────
 # torch comes from the cu124 index. This is the inverse of the previous
@@ -120,7 +140,8 @@ RUN pip3 install --no-cache-dir --break-system-packages \
 # fidelity for no gain, so the sensors run at their upstream rates.
 
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
+COPY start_gui.sh /usr/local/bin/start_gui.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/start_gui.sh
 
 ENV TURTLEBOT3_MODEL=waffle_pi
 
