@@ -95,13 +95,51 @@ _FALLBACK_SPAWN_X = "-1.2"
 _FALLBACK_SPAWN_Y = "-1.2"
 
 
-# Mirrors tb3_sim.launch.py: on the headless GPU host there is no X server,
-# so the Gazebo GUI and RViz cannot start and gz-sim must render its sensors
-# through EGL. Keying the defaults off DISPLAY means the containerised run
-# needs no flags and a workstation run behaves as it always did.
-_HAS_DISPLAY = bool(os.environ.get("DISPLAY"))
+# Mirrors tb3_sim.launch.py — keep the two in sync. Two separate questions
+# that used to have one answer: can a viewer open a window (probe the X
+# socket), and where do gz-sim's sensors render (EGL on the GPU, always, on
+# this host). Docstrings on the helpers explain why they diverge.
+def _x_display_available() -> bool:
+    """True when DISPLAY names an X server that is actually accepting clients.
+
+    Deliberately not "is DISPLAY set". On the GPU host compose exports
+    DISPLAY=:99 unconditionally, because that is where docker/start_gui.sh
+    puts the Xvfb desktop it serves over noVNC — but that desktop may not
+    be running. Launching RViz or the Gazebo GUI against a display with no
+    server behind it aborts in Qt ("cannot connect to X server :99") and
+    takes the whole launch down with it, so probe the socket instead.
+
+    A display with a host part (ssh -X sets DISPLAY=localhost:10.0) has no
+    local socket to probe; trust it rather than silently going headless.
+    """
+    disp = os.environ.get("DISPLAY", "")
+    if not disp:
+        return False
+    host, _, screen = disp.rpartition(":")
+    if host:
+        return True
+    return os.path.exists("/tmp/.X11-unix/X" + screen.split(".")[0])
+
+
+def _headless_render_default(has_display: bool) -> str:
+    """Default for the ``headless_rendering`` argument.
+
+    gz-sim's sensor rendering and the GUI viewers are independent choices,
+    and on the GPU host they must be: the viewers draw on the Xvfb desktop
+    (llvmpipe), while the camera has to keep rendering through EGL on the
+    NVIDIA device. TB3_HEADLESS_RENDERING (set to "true" in
+    docker/compose.yaml) pins that, overriding the DISPLAY heuristic that
+    is still right for a workstation with a real GPU-backed display.
+    """
+    override = os.environ.get("TB3_HEADLESS_RENDERING", "").strip().lower()
+    if override in ("true", "false"):
+        return override
+    return "false" if has_display else "true"
+
+
+_HAS_DISPLAY = _x_display_available()
 _GUI_DEFAULT = "true" if _HAS_DISPLAY else "false"
-_HEADLESS_RENDER_DEFAULT = "false" if _HAS_DISPLAY else "true"
+_HEADLESS_RENDER_DEFAULT = _headless_render_default(_HAS_DISPLAY)
 
 
 # ── Staged startup delays (seconds after launch) ──────────────────────────
@@ -355,21 +393,24 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument("use_sim_time", default_value="true"),
-        # GUI defaults follow DISPLAY (see _GUI_DEFAULT above). On the
-        # containerised GPU host nothing X-based can run, and the notebook
-        # renders the map, landmarks and detector overlay inline instead;
-        # on a workstation with a display these still default to true.
+        # GUI defaults follow whether an X server is actually reachable
+        # (see _x_display_available above), so on the GPU host they come up
+        # on their own once docker/start_gui.sh has started the noVNC
+        # desktop, and stay off when it has not — in which case the
+        # notebook's inline map, landmark and detector views are the view.
         DeclareLaunchArgument("use_rviz", default_value=_GUI_DEFAULT,
                               description="Launch RViz with semantic nav config. "
-                                          "Defaults to true only when DISPLAY is set."),
+                                          "Defaults to true when an X server is "
+                                          "reachable (noVNC desktop or a real one)."),
         DeclareLaunchArgument("use_gzclient", default_value=_GUI_DEFAULT,
                               description="Launch the Gazebo GUI client "
                                           "(false for headless runs)"),
         DeclareLaunchArgument("headless_rendering",
                               default_value=_HEADLESS_RENDER_DEFAULT,
                               description="Render gz-sim sensors through EGL on the "
-                                          "GPU instead of an X display. Defaults to "
-                                          "true when DISPLAY is unset."),
+                                          "GPU instead of an X display. Forced by "
+                                          "TB3_HEADLESS_RENDERING; otherwise true "
+                                          "when no X server is reachable."),
 
         # Spawn pose defaults to "AUTO" — at launch time the OpaqueFunction
         # below substitutes in the per-world default registered in

@@ -6,6 +6,9 @@ read at a glance. Three pieces:
 
   * ``check_env()`` / ``build_workspace()`` — one-time setup, wrapping the
     same ``./build.sh`` the shell workflow uses.
+  * ``gui_start()`` / ``gui_status()`` / ``gui_stop()`` — the noVNC desktop
+    that RViz and the Gazebo GUI draw on, for when the inline views are not
+    enough. Thin wrappers over ``docker/start_gui.sh``.
   * ``Stack`` — owns the ``ros2 launch`` process. Notebook kernels outlive
     individual cells, so the launch runs detached with its output going to
     a log file that later cells tail; nothing blocks the kernel.
@@ -41,6 +44,11 @@ import numpy as np
 # notebooks/ lives at the workspace root, so the repo is one level up.
 WS_ROOT = Path(__file__).resolve().parent.parent
 LOG_DIR = WS_ROOT / "log" / "notebook"
+GUI_SCRIPT = WS_ROOT / "docker" / "start_gui.sh"
+
+# In-container port; the host publishes it as GUI_PORT (docker/compose.yaml)
+# and you reach it through the SSH tunnel, not directly.
+GUI_PORT = int(os.environ.get("TB3_GUI_PORT", "6080"))
 
 
 # ---------------------------------------------------------------------------
@@ -102,7 +110,15 @@ def check_env(verbose: bool = True) -> dict:
 
     info["ros_distro"] = os.environ.get("ROS_DISTRO")
     info["tb3_model"] = os.environ.get("TURTLEBOT3_MODEL")
-    info["display"] = os.environ.get("DISPLAY")  # expected unset → EGL path
+    # DISPLAY is exported as :99 by compose whether or not the noVNC
+    # desktop is running, so report what is actually true: is there an X
+    # server behind it. The launch files make the same distinction.
+    info["display"] = os.environ.get("DISPLAY")
+    info["gui_up"] = _x_socket_present(info["display"])
+    # Sensor rendering is pinned to EGL on the GPU independently of the
+    # above (compose sets TB3_HEADLESS_RENDERING=true); a "false" here on
+    # the GPU host means the camera would render through llvmpipe.
+    info["headless_rendering"] = os.environ.get("TB3_HEADLESS_RENDERING")
 
     rc, out = _run(["gz", "sim", "--versions"])
     info["gz_sim"] = out.splitlines()[0] if rc == 0 and out else None
@@ -125,7 +141,18 @@ def check_env(verbose: bool = True) -> dict:
              info.get("cuda_available", False))
         line("ROS", info["ros_distro"] or "not sourced", bool(info["ros_distro"]))
         line("Gazebo", info["gz_sim"] or "gz not found", bool(info["gz_sim"]))
-        line("DISPLAY", info["display"] or "unset (headless EGL rendering)", True)
+        if info["gui_up"]:
+            gui_msg = f"{info['display']} — noVNC desktop up on :{GUI_PORT}"
+        elif info["display"]:
+            gui_msg = (f"{info['display']} set, no X server behind it "
+                       "(GUI off; gui_start() to change that)")
+        else:
+            gui_msg = "unset — no GUI; inline views only"
+        line("DISPLAY", gui_msg, True)
+        line("sensor render",
+             "EGL on the GPU" if (info["headless_rendering"] or "").lower() == "true"
+             else f"follows DISPLAY (TB3_HEADLESS_RENDERING={info['headless_rendering']})",
+             (info["headless_rendering"] or "").lower() == "true")
         line("workspace built", info["workspace_built"], info["workspace_built"])
         line("yolov8n.pt", info["yolo_weights"], info["yolo_weights"])
 
@@ -176,6 +203,64 @@ def build_workspace(packages: list[str] | None = None) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Remote GUI (noVNC desktop)
+# ---------------------------------------------------------------------------
+# The notebook's inline views cover the common cases, but RViz is still the
+# only way to see TF trees, costmaps and Nav2 plans, and the Gazebo GUI the
+# only way to look around the world. Both need an X server, which a headless
+# GPU box does not have — docker/start_gui.sh runs one (Xvfb) and exports it
+# over noVNC so a browser on the far end of the SSH tunnel can attach.
+#
+# The viewers draw through llvmpipe; the simulator's sensors keep rendering
+# on the GPU through EGL. See the header of docker/start_gui.sh.
+
+
+def _x_socket_present(display: str | None) -> bool:
+    """Whether an X server is actually listening on ``display``."""
+    if not display:
+        return False
+    host, _, screen = display.rpartition(":")
+    if host:                       # ssh -X style DISPLAY=localhost:10.0
+        return True
+    return Path(f"/tmp/.X11-unix/X{screen.split('.')[0]}").exists()
+
+
+def _gui(action: str) -> int:
+    if not GUI_SCRIPT.is_file():
+        print(f"{GUI_SCRIPT} not found — run this from inside the sim container")
+        return 127
+    proc = subprocess.run([str(GUI_SCRIPT), action], capture_output=True,
+                          text=True, timeout=120)
+    print((proc.stdout + proc.stderr).rstrip())
+    return proc.returncode
+
+
+def gui_start() -> None:
+    """Start the virtual desktop, then point at the URL to open.
+
+    Start it *before* the stack: the launch files decide whether to run
+    RViz and the Gazebo GUI by probing for the X socket once, at launch
+    time, so a desktop started afterwards leaves the current run headless.
+    """
+    _gui("start")
+    print(f"\nOpen http://localhost:{GUI_PORT}/vnc.html on your laptop — "
+          "tunnel it first (./docker/tunnel.sh user@gpu-host), and use the "
+          "host port if you changed GUI_PORT in docker/.env.\n"
+          "Then start the stack with Stack(..., gui=True) — or just "
+          "Stack(...), which now picks the GUI up on its own.")
+
+
+def gui_stop() -> None:
+    """Stop the virtual desktop. Any RViz/Gazebo windows on it die with it."""
+    _gui("stop")
+
+
+def gui_status() -> bool:
+    """Print which desktop pieces are up. True if the desktop is usable."""
+    return _gui("status") == 0
+
+
+# ---------------------------------------------------------------------------
 # Launch process management
 # ---------------------------------------------------------------------------
 class Stack:
@@ -195,9 +280,24 @@ class Stack:
 
     def __init__(self, world: str = "warehouse_models_person",
                  launch_args: list[str] | None = None,
-                 log_path: str | os.PathLike | None = None) -> None:
+                 log_path: str | os.PathLike | None = None,
+                 gui: bool | None = None) -> None:
+        """
+        Parameters
+        ----------
+        gui : bool | None
+            Whether to run RViz and the Gazebo GUI. ``None`` (default)
+            leaves the decision to the launch file, which turns them on
+            exactly when an X server is reachable — i.e. when
+            ``gui_start()`` has been called. Pass True/False to force it;
+            True without a running desktop fails the launch in Qt.
+            Sensor rendering stays on the GPU either way.
+        """
         self.world = world
-        self.launch_args = launch_args or []
+        self.launch_args = list(launch_args or [])
+        if gui is not None:
+            flag = "true" if gui else "false"
+            self.launch_args += [f"use_rviz:={flag}", f"use_gzclient:={flag}"]
         LOG_DIR.mkdir(parents=True, exist_ok=True)
         self.log_path = Path(log_path) if log_path else LOG_DIR / "stack.log"
         self._proc: subprocess.Popen | None = None

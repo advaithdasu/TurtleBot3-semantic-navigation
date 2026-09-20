@@ -9,7 +9,10 @@
 #
 # Ports are published on 127.0.0.1 only — reach the notebook from your
 # laptop with an SSH tunnel, not by exposing 8888 to the internet:
-#   ssh -N -L 8888:localhost:8888 -L 8801:localhost:8801 user@gpu-host
+#   ./docker/tunnel.sh user@gpu-host
+# which is shorthand for:
+#   ssh -N -L 8888:localhost:8888 -L 6080:localhost:6080 \
+#          -L 8801:localhost:8801 user@gpu-host
 
 services:
   sim:
@@ -19,6 +22,7 @@ services:
     image: tb3-semantic-nav-sim
     ports:
       - "127.0.0.1:8888:8888"  # JupyterLab
+      - "127.0.0.1:${GUI_PORT:-6080}:6080"  # noVNC desktop (RViz / Gazebo GUI)
       - "127.0.0.1:8801:8801"  # grounding server (shares this netns)
     volumes:
       - ..:/home/ubuntu/ws
@@ -36,12 +40,25 @@ services:
       # shell; the fallback exists so `up` is one command, not two.
       - JUPYTER_TOKEN=${JUPYTER_TOKEN:-tb3}
       - TURTLEBOT3_MODEL=waffle_pi
-      # Deliberately NO `DISPLAY`. The old macOS image ran gz-sim's
-      # Sensors system against a noVNC X server because it had no GPU;
-      # here gz-sim renders headless through EGL straight on the GPU
-      # (tb3_sim.launch.py passes --headless-rendering when DISPLAY is
-      # unset). Setting DISPLAY would send it looking for an X server
-      # that does not exist in this container.
+      # The virtual desktop docker/start_gui.sh serves over noVNC. Set
+      # unconditionally so RViz and the Gazebo GUI need no per-command
+      # prefix, but the launch files do not treat "DISPLAY is set" as
+      # "a GUI can run": they probe for the X socket itself, so a launch
+      # started before (or without) start_gui.sh still comes up headless
+      # instead of dying in Qt with "cannot connect to X server :99".
+      - DISPLAY=:99
+      # Load-bearing, and the whole reason DISPLAY above is safe to set.
+      # gz-sim's Sensors system must render the robot's camera through
+      # EGL on the NVIDIA device no matter what DISPLAY says; the :99
+      # desktop is Xvfb, i.e. llvmpipe, and pointing sensor rendering at
+      # it would quietly drop the real-time factor through the floor.
+      # This pins --headless-rendering on; the GUI *clients* are
+      # unaffected and keep drawing on :99.
+      - TB3_HEADLESS_RENDERING=true
+      # Optional VNC password for the noVNC desktop. Unset means no auth,
+      # which is the same posture as the grounding server on 8801: safe
+      # only because nothing is published beyond the host's loopback.
+      - TB3_VNC_PASSWORD=${TB3_VNC_PASSWORD:-}
     deploy:
       resources:
         reservations:
@@ -70,6 +87,11 @@ services:
     environment:
       # Set to `mock` to fall back to the GPU-free HSV colour heuristic.
       - GROUNDING_BACKEND=${GROUNDING_BACKEND:-locate_anything}
+      # LocateAnything-3B is a licence-gated download. If the first start
+      # dies with a 401/403 from huggingface.co, accept the terms on the
+      # model page and put a read token in docker/.env as HF_TOKEN —
+      # transformers reads this variable directly. Harmless when empty.
+      - HF_TOKEN=${HF_TOKEN:-}
     depends_on:
       - sim
     deploy:

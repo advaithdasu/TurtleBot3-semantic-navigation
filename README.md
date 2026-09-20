@@ -143,8 +143,18 @@ grounding model runs in a sidecar container.
 **Requirements:** Linux x86_64, an NVIDIA GPU (Ampere+ and ~12 GB VRAM if
 you want the real grounding backend), the NVIDIA driver, Docker, and the
 [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/).
-Verify the toolkit before anything else — every downstream symptom of a
-missing one is indirect:
+Check the host before building — every downstream symptom of a missing
+piece is indirect (no toolkit reads as "the sim is mysteriously slow", a
+`compute,utility`-only driver capability as a black camera):
+
+```bash
+./docker/preflight.sh
+```
+
+It verifies the driver, Docker Compose v2, GPU visibility inside a
+container, the EGL vendor ICD that GPU rendering depends on, port
+collisions and disk space, and prints what to do about anything it finds.
+The one-line version of its most important check:
 
 ```bash
 docker run --rm --gpus all ubuntu:24.04 nvidia-smi
@@ -163,18 +173,24 @@ This brings up two services:
 
 | service | what it is | GPU use |
 | --- | --- | --- |
-| `sim` | ROS 2 Jazzy + Gazebo Harmonic + YOLOv8n, serving JupyterLab on **8888** | EGL rendering + CUDA inference |
+| `sim` | ROS 2 Jazzy + Gazebo Harmonic + YOLOv8n, serving JupyterLab on **8888** and an optional noVNC desktop on **6080** | EGL rendering + CUDA inference |
 | `grounding` | LocateAnything-3B HTTP server on **8801**, sharing `sim`'s network namespace | model inference at query time |
 
-Both ports are published on `127.0.0.1` only. Reach the notebook from your
-laptop over an SSH tunnel rather than exposing it:
+Every port is published on `127.0.0.1` only — none of the three
+endpoints authenticates beyond Jupyter's token, so reach them from your
+laptop over an SSH tunnel rather than exposing them:
 
 ```bash
-ssh -N -L 8888:localhost:8888 -L 8801:localhost:8801 user@gpu-host
+./docker/tunnel.sh user@gpu-host          # run this on your laptop
 ```
 
+That is shorthand for `ssh -N -L 8888:localhost:8888 -L
+6080:localhost:6080 -L 8801:localhost:8801 user@gpu-host`, plus keepalives
+so an idle link does not drop the tunnel out from under a running stack.
+
 Then open <http://localhost:8888> (token defaults to `tb3`; override with
-`JUPYTER_TOKEN` in the environment or a `.env` file).
+`JUPYTER_TOKEN` in the environment or in `docker/.env` — see
+[`docker/.env.example`](docker/.env.example)).
 
 ### 2. Drive it from the notebook
 
@@ -185,13 +201,51 @@ SLAM map, and the semantic landmarks inline — plus cells to send commands
 and watch the coordinator's state machine. The helper functions behind the
 cells live in [`notebooks/tb3_nb.py`](notebooks/tb3_nb.py).
 
-There is no RViz and no Gazebo GUI: the container is headless, and the
-notebook's inline map/camera views replace them.
-
 > **YOLOv8n weights (~6 MB).** The `*.pt` files are git-ignored (see
 > `src/tb3_detector/models/.gitignore`). The notebook's build cell fetches
 > them; without them `detector_node` crashes on startup with
 > `FileNotFoundError: yolov8n.pt`.
+
+### 3. RViz and the Gazebo GUI (optional)
+
+The notebook renders the map, camera and landmarks inline, which is the
+low-latency way to watch a run. When you want the real viewers — TF trees,
+costmaps, Nav2 plans, free camera movement in the world — the container
+runs a virtual desktop and serves it over noVNC on the tunnel you already
+have open:
+
+```bash
+docker compose -f docker/compose.yaml exec -u ubuntu sim start_gui.sh start
+```
+
+or `tb3_nb.gui_start()` from the notebook (section 2b) — the kernel
+already runs as `ubuntu`, which is why the shell form pins the user too:
+starting the desktop as root leaves pid files the notebook cannot manage.
+Then open <http://localhost:6080/vnc.html>. `start_gui.sh stop` tears it
+down; `start_gui.sh status` says what is up.
+
+Two things that are easy to get wrong:
+
+- **Start the desktop before the stack.** The launch files decide whether
+  to run RViz and the Gazebo GUI by probing for the X socket once, at
+  launch time — a desktop started afterwards leaves that run headless.
+  With it up beforehand, `use_rviz` and `use_gzclient` default to true on
+  their own.
+- **The viewers run on llvmpipe; the simulator does not.** Xvfb has no
+  NVIDIA GLX behind it, so RViz and the Gazebo GUI render in software,
+  while gz-sim's sensors keep rendering through EGL on the GPU
+  (`TB3_HEADLESS_RENDERING=true` in compose pins that regardless of
+  `DISPLAY`). RViz is comfortable, the Gazebo 3D view is usable but not
+  smooth, and both cost CPU — turn the desktop off when you are measuring
+  real-time factor.
+
+Set `TB3_VNC_PASSWORD` in `docker/.env` to put a password on the desktop.
+Unset, it is open to anything that can reach the port — which, behind the
+tunnel, is only you.
+
+X11 forwarding (`ssh -X`) works too if you prefer it — the launch files
+detect a forwarded `DISPLAY` and turn the viewers on — but a Gazebo window
+over a WAN link is painful enough that noVNC is the documented path.
 
 ### Running from a shell instead
 
@@ -204,11 +258,18 @@ docker compose -f docker/compose.yaml exec sim bash
 ros2 launch tb3_coordinator full_semantic_nav.launch.py
 ```
 
-`use_gzclient`, `use_rviz` and `headless_rendering` all default off the
-`DISPLAY` environment variable: unset (the container) means headless EGL
-rendering with no GUI, set (a workstation, or X forwarding) means gz-sim
-renders to X and the Gazebo GUI and RViz start as usual. Override any of
-them explicitly if you want something else.
+`use_gzclient` and `use_rviz` default to true when an X server is actually
+reachable — a workstation display, an `ssh -X` forward, or the noVNC
+desktop above — and to false otherwise. Note the distinction: compose
+exports `DISPLAY=:99` unconditionally, so the launch files probe for the X
+socket rather than trusting the variable, and a launch with no desktop
+running comes up headless instead of dying in Qt.
+
+`headless_rendering` is a separate decision and is pinned on in the
+container by `TB3_HEADLESS_RENDERING=true`: gz-sim's sensors render through
+EGL on the GPU no matter what the GUI is doing. Only override it on a
+workstation whose display is itself GPU-backed. All three accept explicit
+`arg:=value` overrides.
 
 Runtime debug overlay:
 
@@ -227,6 +288,13 @@ ros2 launch tb3_coordinator full_semantic_nav.launch.py use_runtime_debug:=true
   patched the packaged `waffle_pi` SDF down to a 10 Hz camera because
   gz-sim rendered through llvmpipe on macOS. With EGL on a real GPU that
   workaround costs fidelity for nothing, so the SDF is left alone.
+- **Confirm the camera is really on the GPU.** `tb3_nb.check_env()` covers
+  torch; for gz-sim, watch `nvidia-smi` while a stack is running — the
+  `gz sim` server process should hold VRAM and show utilisation. If it does
+  not, sensor rendering has silently fallen back to llvmpipe, and the real-time
+  factor in the launch log will be sitting around 0.3 instead of
+  near 1.0. `./docker/preflight.sh` catches the usual cause (no NVIDIA EGL
+  ICD in the container) before you get that far.
 - **No GPU?** The stack still runs — torch falls back to CPU and gz-sim
   falls back to llvmpipe — but slowly enough that the real-time factor
   becomes the limiting factor on everything downstream.
