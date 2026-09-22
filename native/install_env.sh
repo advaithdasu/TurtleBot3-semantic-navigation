@@ -17,17 +17,47 @@ ENV_NAME="tb3"
 MAMBA_ROOT="${MAMBA_ROOT_PREFIX:-$HOME/micromamba}"
 
 echo "=== 1. micromamba ==="
+BIN_DIR="${HOME}/.local/bin"
 if ! command -v micromamba >/dev/null 2>&1; then
-  export MAMBA_ROOT_PREFIX="${MAMBA_ROOT}"
-  "${SHELL}" <(curl -L micro.mamba.pm) < /dev/null
-  export PATH="${HOME}/.local/bin:${PATH}"
+  # The official installer (micro.mamba.pm) is interactive (prompts for
+  # install dir, shell init, ...) and piping /dev/null at it doesn't
+  # reliably answer those prompts in a non-interactive shell. Fetch the
+  # static binary directly instead — no prompts, nothing to get wrong.
+  mkdir -p "${BIN_DIR}"
+  ARCH="$(uname -m)"
+  case "${ARCH}" in
+    x86_64) PLATFORM="linux-64" ;;
+    aarch64|arm64) PLATFORM="linux-aarch64" ;;
+    *) echo "error: unrecognized architecture '${ARCH}' — see" \
+            "https://mamba.readthedocs.io/en/latest/installation/micromamba-installation.html" >&2
+       exit 1 ;;
+  esac
+  curl -Ls "https://micro.mamba.pm/api/micromamba/${PLATFORM}/latest" \
+    | tar -xj -C "${BIN_DIR}" --strip-components=1 bin/micromamba
+  chmod +x "${BIN_DIR}/micromamba"
 fi
+export PATH="${BIN_DIR}:${PATH}"
+export MAMBA_ROOT_PREFIX="${MAMBA_ROOT}"
+
 if ! command -v micromamba >/dev/null 2>&1; then
-  echo "error: micromamba install finished but 'micromamba' is not on PATH." >&2
-  echo "       Open a new shell (or 'source ~/.bashrc') and re-run this script." >&2
+  echo "error: expected micromamba at ${BIN_DIR}/micromamba but it's not on PATH." >&2
   exit 1
 fi
 micromamba --version
+
+# Make this permanent for future shells/terminals (JupyterHub terminals
+# start a fresh shell each time), and make it idempotent to re-run.
+for rc in "${HOME}/.bashrc" "${HOME}/.bash_profile"; do
+  [ -f "${rc}" ] || continue
+  grep -q "MAMBA_ROOT_PREFIX=.*micromamba" "${rc}" 2>/dev/null && continue
+  {
+    echo ""
+    echo "# added by TurtleBot3-semantic-navigation/native/install_env.sh"
+    echo "export MAMBA_ROOT_PREFIX=\"${MAMBA_ROOT}\""
+    echo "export PATH=\"${BIN_DIR}:\${PATH}\""
+  } >> "${rc}"
+  echo "Added micromamba to PATH in ${rc} — open a new terminal (or 'source ${rc}') to pick it up there."
+done
 
 echo
 echo "=== 2. ${ENV_NAME} conda env (ROS 2 Jazzy + Gazebo Harmonic, RoboStack) ==="
