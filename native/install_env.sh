@@ -91,13 +91,24 @@ echo "=== 3. Python deps (torch/CUDA, YOLO, Jupyter) ==="
 #     that resolves to 5.x, which renumbers CV_8UC* constants (CV_8UC3
 #     16 -> 64) relative to what ros-jazzy-cv-bridge's compiled extension
 #     expects, and raises KeyError(16) at conversion time.
+#   - setuptools<80: setuptools 80.0.0 dropped the legacy `develop
+#     --editable` flag that colcon's --symlink-install uses to build
+#     ament_python packages (pypa/setuptools#4971), so anything installed
+#     here that upgrades setuptools past 80 breaks `colcon build
+#     --symlink-install` with "error: option --editable not recognized".
+#     Confirmed hitting ROS 2 Jazzy specifically (ros2/ros2#1702); 79.0.1
+#     is the version people report as working, hence the pin below.
 # torch comes from the cu124 wheel index, which vendors its own CUDA
 # runtime — no nvcc/CUDA toolkit needed on the host, only the driver
 # (already present: nvidia-smi works outside any container here).
+# All pins are installed last, after anything that might have upgraded
+# them, same as the Dockerfile does.
 micromamba run -n "${ENV_NAME}" pip install --no-cache-dir \
     --index-url https://download.pytorch.org/whl/cu124 torch torchvision
 micromamba run -n "${ENV_NAME}" pip install --no-cache-dir \
-    ultralytics jupyterlab ipykernel matplotlib ipywidgets 'opencv-python<5'
+    ultralytics jupyterlab ipykernel matplotlib ipywidgets
+micromamba run -n "${ENV_NAME}" pip install --no-cache-dir \
+    'opencv-python<5' 'setuptools<80'
 
 micromamba run -n "${ENV_NAME}" python3 -c \
   "import torch; assert torch.version.cuda, 'torch is a CPU build; expected a cu12x wheel'; print('torch', torch.__version__, 'cuda', torch.version.cuda)"

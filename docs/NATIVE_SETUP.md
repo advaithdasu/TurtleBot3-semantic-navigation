@@ -134,8 +134,19 @@ Specifically untested:
   Docker/apt one for this workspace's mixed `ament_python`/`ament_cmake`
   packages (`tb3_query` generates a message via `rosidl_default_generators`,
   `tb3_frontier_exploration` pulls in `ament_lint_auto` under
-  `BUILD_TESTING=ON`) — both are confirmed present as conda packages, but
-  the actual build hasn't been run.
+  `BUILD_TESTING=ON`) — first real run hit one issue, now fixed: pip
+  installs in `install_env.sh` were letting `setuptools` drift past 80.0.0,
+  which drops the legacy `develop --editable` flag colcon's
+  `--symlink-install` needs for `ament_python` packages and fails with
+  `error: option --editable not recognized`
+  ([pypa/setuptools#4971](https://github.com/pypa/setuptools/issues/4971),
+  hits ROS 2 Jazzy specifically per
+  [ros2/ros2#1702](https://github.com/ros2/ros2/issues/1702)).
+  `install_env.sh` now pins `setuptools<80`, same as `docker/Dockerfile`
+  already does for the same reason. If you set up your env before this fix,
+  run `pip install 'setuptools<80'` inside it and re-run `setup_ws.sh`.
+  Still open: whether the rest of the build (message generation, the
+  `ament_cmake` packages) goes cleanly past that point.
 - The 11 GB VRAM per GPU on this box vs. LocateAnything-3B's ~12 GB ask —
   run the grounding sidecar path with the mock backend
   (`GROUNDING_BACKEND=mock`, or set `grounding_server_url` in
