@@ -140,6 +140,15 @@ The stack runs in Docker on an **NVIDIA GPU host** and is driven from a
 camera through EGL, YOLOv8n infers on CUDA, and the LocateAnything-3B
 grounding model runs in a sidecar container.
 
+> **Splitting remote GPU processing from a local Mac GUI?** See
+> [`docs/REMOTE_SETUP.md`](docs/REMOTE_SETUP.md) for the same steps below,
+> organized strictly by which machine each command runs on.
+>
+> **On a shared GPU cluster with no Docker and no root (e.g. a JupyterHub
+> node where `sudo` is locked down)?** See
+> [`docs/NATIVE_SETUP.md`](docs/NATIVE_SETUP.md) — installs everything via
+> conda packages (RoboStack) instead of `apt`+Docker.
+
 **Requirements:** Linux x86_64, an NVIDIA GPU (Ampere+ and ~12 GB VRAM if
 you want the real grounding backend), the NVIDIA driver, Docker, and the
 [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/).
